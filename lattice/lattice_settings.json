@@ -1,0 +1,11 @@
+{
+  "position_pct": 0.3,
+  "max_trades_per_day": 5,
+  "trail_atr_mult": 0.2,
+  "entry_mode": "smart",
+  "min_gap_pct": 1.5,
+  "max_gap_pct": 8.0,
+  "min_rvol": 1.5,
+  "last_entry_hour": 15,
+  "last_entry_minute": 0
+}

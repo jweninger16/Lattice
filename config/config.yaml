@@ -1,0 +1,44 @@
+universe:
+  index: sp500
+  min_price: 10.0
+  min_avg_volume: 500000
+  max_positions: 5
+  max_sector_concentration: 2
+  min_correlation_distance: 0.3
+data:
+  start_date: '2018-01-01'
+  end_date: null
+  cache_dir: data/raw
+  processed_dir: data/processed
+signals:
+  lookback_rs: 63
+  lookback_volume: 20
+  volume_threshold: 2.0
+  rs_top_pct: 0.2
+backtest:
+  hold_days: 5
+  commission: 0.001
+  slippage: 0.001
+  initial_capital: 2000
+  position_size: 0.1
+  stop_loss_atr: 1.5
+  profit_target_atr: 3.5
+  early_exit_days: 3
+  early_exit_threshold: -0.025
+  vol_target_per_position: 0.015
+  min_position_size: 0.05
+  max_position_size: 0.12
+validation:
+  train_months: 24
+  test_months: 3
+  embargo_days: 5
+risk:
+  max_drawdown_pct: 0.2
+  cooldown_days: 10
+  vol_target: 0.12
+  kelly_fraction: 0.25
+  max_daily_loss_pct: 0.04
+  enforce_portfolio_stop: true
+logging:
+  level: INFO
+  log_dir: logs

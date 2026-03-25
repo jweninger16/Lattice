@@ -1,0 +1,7 @@
+date,ticker,trade_number,gap_pct,rvol,atr_pct,mom_5d,above_sma50,si_pct,float_shares,float_category,options_signal,call_vol_oi_ratio,call_put_ratio,score,candidate_rank,num_candidates,entry_signal,entry_price,pm_high,vwap_at_entry,float_rotation_at_entry,minutes_after_open,scan_number,hard_stop,stop_type,trail_amount,trail_atr_mult,exit_price,exit_reason,pnl_usd,pnl_pct,trade_duration_min,high_before_exit,max_unrealized_pct,drawdown_from_high,spy_change_pct,vix_level,sector,day_of_week,win,account_after
+2026-03-25,ALB,1,1.6,1.66,5.12,6.46,1,12.69,117439469,mid,,0.17,0.78,7.06,1,43,timeout,182.5,183.0,182.28,0.0,51,1,176.71,gap,1.81,0.2,181.11,trail,-6.93,-0.76,55,182.28,-0.12,0.64,"Ticker
+SPY    0.34
+dtype: float64",0,,2,0,1963.21
+2026-03-25,AMD,2,2.99,6.52,3.85,4.62,1,2.13,1621476192,high,active,0.96,1.46,5.73,1,45,pm_breakout,217.98,211.64,217.98,0.0,107,1,210.07,gap,1.58,0.2,218.27,trail,1.15,0.13,23,217.98,0.0,-0.13,"Ticker
+SPY    0.57
+dtype: float64",0,,2,1,1962.36

@@ -1,0 +1,15 @@
+.env
+venv/
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+data/universe/
+models/*.pkl
+live/positions.db
+live/positions.json
+live/positions.json.bak
+logs/
+backtest/*.png
+*.egg-info/
+.DS_Store

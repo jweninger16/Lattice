@@ -1,0 +1,24 @@
+# Core data
+yfinance>=0.2.38
+pandas>=2.2.2
+numpy>=1.26.4
+
+# ML
+lightgbm>=4.3.0
+scikit-learn>=1.4.2
+scipy>=1.13.0
+
+# Visualization
+matplotlib>=3.8.4
+seaborn>=0.13.2
+
+# Utilities
+python-dotenv>=1.0.1
+requests>=2.31.0
+tqdm>=4.66.2
+pyarrow>=16.0.0
+loguru>=0.7.2
+schedule>=1.2.1
+
+# Alerts (optional — configure in .env)
+# twilio  # uncomment if using Twilio instead of Gmail gateway

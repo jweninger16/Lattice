@@ -1,0 +1,28 @@
+{
+  "Jweninger16": {
+    "name": "Jake Weninger",
+    "salt": "5a5418faa1b133c1cfeb0f677a9a3d47",
+    "password_hash": "3cb442c492e86adbd856e76a0dd7b53ba96d2a4078e439b2f6b73957805189da",
+    "token": "2d8ec3ceb096deb76cefdf95baefc16e1d5d2e24bc4d5d822957ded4c1f681d3",
+    "settings": {
+      "account_type": "live",
+      "commission_plan": "lite",
+      "account_mode": "cash",
+      "port": 7496
+    },
+    "created": "2026-03-25 11:31:47.107975"
+  },
+  "jweninger16": {
+    "name": "Jake",
+    "salt": "6006b434084e1b60c905f32393649f28",
+    "password_hash": "e5d2e319172bb85f5f15dd5e33fdebc8ef36192455a8d10d177a37319ef42433",
+    "token": "bb79f508a59e6e710badee6a90b843befb13b04e800117085cc4218746e269f4",
+    "settings": {
+      "account_type": "live",
+      "commission_plan": "lite",
+      "account_mode": "cash",
+      "port": 7496
+    },
+    "created": "2026-03-25 14:19:23.815640"
+  }
+}

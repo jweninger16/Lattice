@@ -1,0 +1,47 @@
+applied_at: '2026-03-11T17:21:49.736673'
+changes:
+- Conservative LightGBM params (LR=0.01, leaves=15, depth=4)
+- 3-day forward return target (was 5-day)
+- Shorter early exit window (3 days vs 4)
+- Hold days reduced to 5 (was 7)
+new_settings:
+  early_exit_days: 3
+  hold_days: 5
+  params:
+    bagging_fraction: 0.75
+    bagging_freq: 5
+    feature_fraction: 0.5
+    learning_rate: 0.01
+    max_depth: 4
+    metric: auc
+    min_child_samples: 300
+    n_jobs: -1
+    num_leaves: 15
+    objective: binary
+    reg_alpha: 1.0
+    reg_lambda: 1.0
+    verbose: -1
+  target: 3-day forward return, top 20%
+old_settings:
+  early_exit_days: 4
+  hold_days: 7
+  params:
+    bagging_fraction: 0.75
+    bagging_freq: 5
+    feature_fraction: 0.65
+    learning_rate: 0.03
+    max_depth: 6
+    metric: auc
+    min_child_samples: 150
+    n_jobs: -1
+    num_leaves: 31
+    objective: binary
+    reg_alpha: 0.3
+    reg_lambda: 0.3
+    verbose: -1
+  target: 5-day forward return, top 20%
+version: v3_improved
+walk_forward_results:
+  avg_auc: 0.5987841199648929
+  avg_top20_ret: 0.5990341877437984
+  n_folds: 25

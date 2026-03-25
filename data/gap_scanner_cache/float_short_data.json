@@ -1,0 +1,1865 @@
+{
+  "AAPL": {
+    "float_shares": 14656182062,
+    "short_interest": 129553812,
+    "short_pct_float": 0.0088,
+    "shares_outstanding": 14681140000,
+    "market_cap": 3696381394944,
+    "avg_volume": 46586027,
+    "sector": "Technology"
+  },
+  "MSFT": {
+    "float_shares": 7414787658,
+    "short_interest": 74347979,
+    "short_pct_float": 0.01,
+    "shares_outstanding": 7425629076,
+    "market_cap": 2846600724480,
+    "avg_volume": 34174708,
+    "sector": "Technology"
+  },
+  "NVDA": {
+    "float_shares": 23321925000,
+    "short_interest": 248340872,
+    "short_pct_float": 0.0107,
+    "shares_outstanding": 24300000000,
+    "market_cap": 4268930367488,
+    "avg_volume": 174903088,
+    "sector": "Technology"
+  },
+  "AMZN": {
+    "float_shares": 9754500547,
+    "short_interest": 81891881,
+    "short_pct_float": 0.0084,
+    "shares_outstanding": 10734920870,
+    "market_cap": 2255836151808,
+    "avg_volume": 48889476,
+    "sector": "Consumer Cyclical"
+  },
+  "META": {
+    "float_shares": 2183917005,
+    "short_interest": 24393384,
+    "short_pct_float": 0.0112,
+    "shares_outstanding": 2187177748,
+    "market_cap": 1528003297280,
+    "avg_volume": 14442864,
+    "sector": "Communication Services"
+  },
+  "GOOGL": {
+    "float_shares": 10833710290,
+    "short_interest": 76336607,
+    "short_pct_float": 0.013099999,
+    "shares_outstanding": 5822000000,
+    "market_cap": 3654019973120,
+    "avg_volume": 32649994,
+    "sector": "Communication Services"
+  },
+  "GOOG": {
+    "float_shares": 10833710290,
+    "short_interest": 31878342,
+    "short_pct_float": null,
+    "shares_outstanding": 5438000000,
+    "market_cap": 3617244839936,
+    "avg_volume": 20855296,
+    "sector": "Communication Services"
+  },
+  "BRK-B": {
+    "float_shares": 1235265,
+    "short_interest": 11722714,
+    "short_pct_float": 0.0095,
+    "shares_outstanding": 1390722404,
+    "market_cap": 1035254956032,
+    "avg_volume": 4784257,
+    "sector": "Financial Services"
+  },
+  "LLY": {
+    "float_shares": 890981089,
+    "short_interest": 6785689,
+    "short_pct_float": 0.0085,
+    "shares_outstanding": 892992420,
+    "market_cap": 814959296512,
+    "avg_volume": 3071144,
+    "sector": "Healthcare"
+  },
+  "AVGO": {
+    "float_shares": 405850170,
+    "short_interest": 47599197,
+    "short_pct_float": 0.010199999,
+    "shares_outstanding": 4734668184,
+    "market_cap": 1529108234240,
+    "avg_volume": 26234215,
+    "sector": "Technology"
+  },
+  "TSLA": {
+    "float_shares": 2812710442,
+    "short_interest": 61839735,
+    "short_pct_float": 0.0185,
+    "shares_outstanding": 3752431984,
+    "market_cap": 1429113667584,
+    "avg_volume": 60756706,
+    "sector": "Consumer Cyclical"
+  },
+  "WMT": {
+    "float_shares": 4371826359,
+    "short_interest": 87112768,
+    "short_pct_float": 0.0109,
+    "shares_outstanding": 7972402501,
+    "market_cap": 962428469248,
+    "avg_volume": 31058015,
+    "sector": "Consumer Defensive"
+  },
+  "JPM": {
+    "float_shares": 2682980836,
+    "short_interest": 22965132,
+    "short_pct_float": 0.0085,
+    "shares_outstanding": 2697032375,
+    "market_cap": 781896712192,
+    "avg_volume": 10893884,
+    "sector": "Financial Services"
+  },
+  "V": {
+    "float_shares": 1739812040,
+    "short_interest": 27231314,
+    "short_pct_float": 0.0162,
+    "shares_outstanding": 1681093942,
+    "market_cap": 586972397568,
+    "avg_volume": 7744538,
+    "sector": "Financial Services"
+  },
+  "XOM": {
+    "float_shares": 4158179920,
+    "short_interest": 48374573,
+    "short_pct_float": 0.012999999,
+    "shares_outstanding": 4166763453,
+    "market_cap": 671390629888,
+    "avg_volume": 21091210,
+    "sector": "Energy"
+  },
+  "UNH": {
+    "float_shares": 900005978,
+    "short_interest": 14788018,
+    "short_pct_float": 0.0163,
+    "shares_outstanding": 907675839,
+    "market_cap": 244654948352,
+    "avg_volume": 9503616,
+    "sector": "Healthcare"
+  },
+  "ORCL": {
+    "float_shares": 1708975294,
+    "short_interest": 31499783,
+    "short_pct_float": 0.0184,
+    "shares_outstanding": 2876046000,
+    "market_cap": 443888926720,
+    "avg_volume": 26835877,
+    "sector": "Technology"
+  },
+  "MA": {
+    "float_shares": 883991117,
+    "short_interest": 6718459,
+    "short_pct_float": 0.0076,
+    "shares_outstanding": 885216386,
+    "market_cap": 446557978624,
+    "avg_volume": 3793413,
+    "sector": "Financial Services"
+  },
+  "HD": {
+    "float_shares": 994417848,
+    "short_interest": 9011700,
+    "short_pct_float": 0.0091,
+    "shares_outstanding": 996011466,
+    "market_cap": 329580183552,
+    "avg_volume": 4118537,
+    "sector": "Consumer Cyclical"
+  },
+  "PG": {
+    "float_shares": 2319840724,
+    "short_interest": 22387940,
+    "short_pct_float": 0.0095999995,
+    "shares_outstanding": 2336733549,
+    "market_cap": 337006493696,
+    "avg_volume": 11460657,
+    "sector": "Consumer Defensive"
+  },
+  "COST": {
+    "float_shares": 442428059,
+    "short_interest": 6388788,
+    "short_pct_float": 0.014400001,
+    "shares_outstanding": 443652540,
+    "market_cap": 428657999872,
+    "avg_volume": 2252254,
+    "sector": "Consumer Defensive"
+  },
+  "JNJ": {
+    "float_shares": 2406091296,
+    "short_interest": 25086679,
+    "short_pct_float": 0.0104,
+    "shares_outstanding": 2408613219,
+    "market_cap": 567338401792,
+    "avg_volume": 8638918,
+    "sector": "Healthcare"
+  },
+  "ABBV": {
+    "float_shares": 1765074716,
+    "short_interest": 21748668,
+    "short_pct_float": 0.0123000005,
+    "shares_outstanding": 1768169012,
+    "market_cap": 362350837760,
+    "avg_volume": 7058505,
+    "sector": "Healthcare"
+  },
+  "NFLX": {
+    "float_shares": 4192944788,
+    "short_interest": 89634663,
+    "short_pct_float": 0.0214,
+    "shares_outstanding": 4237323340,
+    "market_cap": 396107644928,
+    "avg_volume": 48441452,
+    "sector": "Communication Services"
+  },
+  "BAC": {
+    "float_shares": 7149267244,
+    "short_interest": 91784810,
+    "short_pct_float": 0.0128,
+    "shares_outstanding": 7176682170,
+    "market_cap": 347014594560,
+    "avg_volume": 41017757,
+    "sector": "Financial Services"
+  },
+  "KO": {
+    "float_shares": 3872457066,
+    "short_interest": 43415996,
+    "short_pct_float": 0.010199999,
+    "shares_outstanding": 4304152877,
+    "market_cap": 323284926464,
+    "avg_volume": 17924930,
+    "sector": "Consumer Defensive"
+  },
+  "CRM": {
+    "float_shares": 897709800,
+    "short_interest": 21903394,
+    "short_pct_float": 0.024400001,
+    "shares_outstanding": 923000000,
+    "market_cap": 182883647488,
+    "avg_volume": 12021908,
+    "sector": "Technology"
+  },
+  "CVX": {
+    "float_shares": 1854132197,
+    "short_interest": 21592025,
+    "short_pct_float": 0.0109,
+    "shares_outstanding": 1981217539,
+    "market_cap": 410287374336,
+    "avg_volume": 12332432,
+    "sector": "Energy"
+  },
+  "MRK": {
+    "float_shares": 2468411452,
+    "short_interest": 31115811,
+    "short_pct_float": 0.0139999995,
+    "shares_outstanding": 2472392003,
+    "market_cap": 286006312960,
+    "avg_volume": 12002774,
+    "sector": "Healthcare"
+  },
+  "AMD": {
+    "float_shares": 1621476192,
+    "short_interest": 34593125,
+    "short_pct_float": 0.021300001,
+    "shares_outstanding": 1630410843,
+    "market_cap": 330451681280,
+    "avg_volume": 36274357,
+    "sector": "Technology"
+  },
+  "PEP": {
+    "float_shares": 1362658438,
+    "short_interest": 20841738,
+    "short_pct_float": 0.0153,
+    "shares_outstanding": 1366649053,
+    "market_cap": 206304296960,
+    "avg_volume": 7940544,
+    "sector": "Consumer Defensive"
+  },
+  "TMO": {
+    "float_shares": 370551819,
+    "short_interest": 3548063,
+    "short_pct_float": 0.0095999995,
+    "shares_outstanding": 371484244,
+    "market_cap": 177614045184,
+    "avg_volume": 2334935,
+    "sector": "Healthcare"
+  },
+  "ACN": {
+    "float_shares": 612723668,
+    "short_interest": 15229834,
+    "short_pct_float": 0.0276,
+    "shares_outstanding": 613939268,
+    "market_cap": 123099340800,
+    "avg_volume": 6513969,
+    "sector": "Technology"
+  },
+  "LIN": {
+    "float_shares": 461730571,
+    "short_interest": 5717346,
+    "short_pct_float": 0.0124,
+    "shares_outstanding": 463394156,
+    "market_cap": 221525557248,
+    "avg_volume": 2634823,
+    "sector": "Basic Materials"
+  },
+  "MCD": {
+    "float_shares": 709396980,
+    "short_interest": 9215479,
+    "short_pct_float": 0.012999999,
+    "shares_outstanding": 712154350,
+    "market_cap": 220125560832,
+    "avg_volume": 3222067,
+    "sector": "Consumer Cyclical"
+  },
+  "CSCO": {
+    "float_shares": 3943375718,
+    "short_interest": 59534589,
+    "short_pct_float": 0.0150999995,
+    "shares_outstanding": 3949893042,
+    "market_cap": 311425269760,
+    "avg_volume": 23332288,
+    "sector": "Technology"
+  },
+  "ABT": {
+    "float_shares": 1727204659,
+    "short_interest": 18233629,
+    "short_pct_float": 0.0105,
+    "shares_outstanding": 1737674869,
+    "market_cap": 182196060160,
+    "avg_volume": 10984633,
+    "sector": "Healthcare"
+  },
+  "IBM": {
+    "float_shares": 936083292,
+    "short_interest": 21365595,
+    "short_pct_float": 0.0253,
+    "shares_outstanding": 938409072,
+    "market_cap": 233138356224,
+    "avg_volume": 5818806,
+    "sector": "Technology"
+  },
+  "GE": {
+    "float_shares": 1044870073,
+    "short_interest": 11228531,
+    "short_pct_float": 0.0107,
+    "shares_outstanding": 1044829602,
+    "market_cap": 307520438272,
+    "avg_volume": 5421259,
+    "sector": "Industrials"
+  },
+  "CAT": {
+    "float_shares": 463863553,
+    "short_interest": 8302639,
+    "short_pct_float": 0.0179,
+    "shares_outstanding": 465287332,
+    "market_cap": 328381267968,
+    "avg_volume": 2803688,
+    "sector": "Industrials"
+  },
+  "NOW": {
+    "float_shares": 1043050280,
+    "short_interest": 26455406,
+    "short_pct_float": 0.0253,
+    "shares_outstanding": 1046000000,
+    "market_cap": 117068111872,
+    "avg_volume": 18127588,
+    "sector": "Technology"
+  },
+  "ISRG": {
+    "float_shares": 352942635,
+    "short_interest": 6611189,
+    "short_pct_float": 0.0187,
+    "shares_outstanding": 355169692,
+    "market_cap": 169785327616,
+    "avg_volume": 1867700,
+    "sector": "Healthcare"
+  },
+  "GS": {
+    "float_shares": 306663252,
+    "short_interest": 6116629,
+    "short_pct_float": 0.0207,
+    "shares_outstanding": 296752922,
+    "market_cap": 249321586688,
+    "avg_volume": 2451030,
+    "sector": "Financial Services"
+  },
+  "TXN": {
+    "float_shares": 905381728,
+    "short_interest": 19389215,
+    "short_pct_float": 0.023699999,
+    "shares_outstanding": 910463377,
+    "market_cap": 171740708864,
+    "avg_volume": 7599659,
+    "sector": "Technology"
+  },
+  "QCOM": {
+    "float_shares": 1064695280,
+    "short_interest": 37512985,
+    "short_pct_float": 0.039300002,
+    "shares_outstanding": 1067000000,
+    "market_cap": 137083600896,
+    "avg_volume": 10919898,
+    "sector": "Technology"
+  },
+  "INTU": {
+    "float_shares": 270316563,
+    "short_interest": 6686514,
+    "short_pct_float": 0.0277,
+    "shares_outstanding": 276550000,
+    "market_cap": 127176818688,
+    "avg_volume": 3849493,
+    "sector": "Technology"
+  },
+  "BKNG": {
+    "float_shares": 31569774,
+    "short_interest": 828599,
+    "short_pct_float": 0.026199998,
+    "shares_outstanding": 31673346,
+    "market_cap": 141725319168,
+    "avg_volume": 390672,
+    "sector": "Consumer Cyclical"
+  },
+  "RTX": {
+    "float_shares": 1248381230,
+    "short_interest": 13056612,
+    "short_pct_float": 0.0097,
+    "shares_outstanding": 1345974220,
+    "market_cap": 262222725120,
+    "avg_volume": 6124408,
+    "sector": "Industrials"
+  },
+  "SPGI": {
+    "float_shares": 298097820,
+    "short_interest": 4445037,
+    "short_pct_float": 0.0149,
+    "shares_outstanding": 298800000,
+    "market_cap": 129861836800,
+    "avg_volume": 2526379,
+    "sector": "Financial Services"
+  },
+  "DHR": {
+    "float_shares": 629969238,
+    "short_interest": 6293889,
+    "short_pct_float": 0.01,
+    "shares_outstanding": 707139356,
+    "market_cap": 134356475904,
+    "avg_volume": 3871379,
+    "sector": "Healthcare"
+  },
+  "AMGN": {
+    "float_shares": 537622974,
+    "short_interest": 15113236,
+    "short_pct_float": 0.028099999,
+    "shares_outstanding": 539067675,
+    "market_cap": 188549693440,
+    "avg_volume": 2740533,
+    "sector": "Healthcare"
+  },
+  "PFE": {
+    "float_shares": 5678647833,
+    "short_interest": 142846663,
+    "short_pct_float": 0.0251,
+    "shares_outstanding": 5688356129,
+    "market_cap": 152277303296,
+    "avg_volume": 45343106,
+    "sector": "Healthcare"
+  },
+  "NEE": {
+    "float_shares": 2079188238,
+    "short_interest": 46938307,
+    "short_pct_float": 0.025,
+    "shares_outstanding": 2083521964,
+    "market_cap": 187996192768,
+    "avg_volume": 9584944,
+    "sector": "Utilities"
+  },
+  "LOW": {
+    "float_shares": 559844340,
+    "short_interest": 10257166,
+    "short_pct_float": 0.0183,
+    "shares_outstanding": 560951457,
+    "market_cap": 131402883072,
+    "avg_volume": 2758191,
+    "sector": "Consumer Cyclical"
+  },
+  "T": {
+    "float_shares": 6985945995,
+    "short_interest": 103166600,
+    "short_pct_float": 0.0148,
+    "shares_outstanding": 7000577201,
+    "market_cap": 203892572160,
+    "avg_volume": 44477611,
+    "sector": "Communication Services"
+  },
+  "AMAT": {
+    "float_shares": 790141792,
+    "short_interest": 13477213,
+    "short_pct_float": 0.017,
+    "shares_outstanding": 793609867,
+    "market_cap": 287120130048,
+    "avg_volume": 7451411,
+    "sector": "Technology"
+  },
+  "MS": {
+    "float_shares": 1206249763,
+    "short_interest": 15921158,
+    "short_pct_float": 0.013200001,
+    "shares_outstanding": 1587860206,
+    "market_cap": 260917198848,
+    "avg_volume": 7224172,
+    "sector": "Financial Services"
+  },
+  "HON": {
+    "float_shares": 603014683,
+    "short_interest": 7511345,
+    "short_pct_float": 0.0117999995,
+    "shares_outstanding": 635675701,
+    "market_cap": 141762035712,
+    "avg_volume": 4240916,
+    "sector": "Industrials"
+  },
+  "UNP": {
+    "float_shares": 592038527,
+    "short_interest": 27857473,
+    "short_pct_float": 0.047,
+    "shares_outstanding": 593391460,
+    "market_cap": 141446725632,
+    "avg_volume": 3346825,
+    "sector": "Industrials"
+  },
+  "AXP": {
+    "float_shares": 533547145,
+    "short_interest": 9850572,
+    "short_pct_float": 0.0184,
+    "shares_outstanding": 686614005,
+    "market_cap": 207971205120,
+    "avg_volume": 3552644,
+    "sector": "Financial Services"
+  },
+  "VRTX": {
+    "float_shares": 253241603,
+    "short_interest": 4433365,
+    "short_pct_float": 0.0197,
+    "shares_outstanding": 254000000,
+    "market_cap": 114613690368,
+    "avg_volume": 1440454,
+    "sector": "Healthcare"
+  },
+  "UBER": {
+    "float_shares": 2046508209,
+    "short_interest": 52419652,
+    "short_pct_float": 0.026400002,
+    "shares_outstanding": 2058115983,
+    "market_cap": 156086632448,
+    "avg_volume": 20279740,
+    "sector": "Technology"
+  },
+  "SYK": {
+    "float_shares": 346574345,
+    "short_interest": 4273246,
+    "short_pct_float": 0.0117,
+    "shares_outstanding": 382688675,
+    "market_cap": 127278424064,
+    "avg_volume": 2012493,
+    "sector": "Healthcare"
+  },
+  "C": {
+    "float_shares": 1743581243,
+    "short_interest": 28693694,
+    "short_pct_float": 0.0164,
+    "shares_outstanding": 1749319009,
+    "market_cap": 195293970432,
+    "avg_volume": 14790864,
+    "sector": "Financial Services"
+  },
+  "BSX": {
+    "float_shares": 1479641544,
+    "short_interest": 26261043,
+    "short_pct_float": 0.0177,
+    "shares_outstanding": 1486175167,
+    "market_cap": 103348617216,
+    "avg_volume": 14568910,
+    "sector": "Healthcare"
+  },
+  "BLK": {
+    "float_shares": 144418761,
+    "short_interest": 1446441,
+    "short_pct_float": 0.0095,
+    "shares_outstanding": 155541536,
+    "market_cap": 151587667968,
+    "avg_volume": 834098,
+    "sector": "Financial Services"
+  },
+  "DE": {
+    "float_shares": 269583274,
+    "short_interest": 4991541,
+    "short_pct_float": 0.0185,
+    "shares_outstanding": 270107282,
+    "market_cap": 153699155968,
+    "avg_volume": 1582128,
+    "sector": "Industrials"
+  },
+  "GILD": {
+    "float_shares": 1238565261,
+    "short_interest": 18454950,
+    "short_pct_float": 0.0149,
+    "shares_outstanding": 1241420528,
+    "market_cap": 170496688128,
+    "avg_volume": 7050803,
+    "sector": "Healthcare"
+  },
+  "ADI": {
+    "float_shares": 486471032,
+    "short_interest": 8430824,
+    "short_pct_float": 0.019299999,
+    "shares_outstanding": 488204157,
+    "market_cap": 152412454912,
+    "avg_volume": 3979669,
+    "sector": "Technology"
+  },
+  "SCHW": {
+    "float_shares": 1647988949,
+    "short_interest": 12740297,
+    "short_pct_float": 0.0078,
+    "shares_outstanding": 1752210425,
+    "market_cap": 169342091264,
+    "avg_volume": 10409918,
+    "sector": "Financial Services"
+  },
+  "ETN": {
+    "float_shares": 387151353,
+    "short_interest": 7459472,
+    "short_pct_float": 0.019299999,
+    "shares_outstanding": 387985340,
+    "market_cap": 139723014144,
+    "avg_volume": 2868613,
+    "sector": "Industrials"
+  },
+  "BMY": {
+    "float_shares": 2033235712,
+    "short_interest": 33420961,
+    "short_pct_float": 0.0164,
+    "shares_outstanding": 2036473705,
+    "market_cap": 116079001600,
+    "avg_volume": 13487738,
+    "sector": "Healthcare"
+  },
+  "REGN": {
+    "float_shares": 98554009,
+    "short_interest": 2286750,
+    "short_pct_float": 0.0228,
+    "shares_outstanding": 103902660,
+    "market_cap": 77865811968,
+    "avg_volume": 746554,
+    "sector": "Healthcare"
+  },
+  "PLD": {
+    "float_shares": 925952311,
+    "short_interest": 12391888,
+    "short_pct_float": 0.0173,
+    "shares_outstanding": 932230676,
+    "market_cap": 121478971392,
+    "avg_volume": 3382335,
+    "sector": "Real Estate"
+  },
+  "MDT": {
+    "float_shares": 1281496938,
+    "short_interest": 15426378,
+    "short_pct_float": 0.012,
+    "shares_outstanding": 1283884964,
+    "market_cap": 111916244992,
+    "avg_volume": 8123874,
+    "sector": "Healthcare"
+  },
+  "SO": {
+    "float_shares": 1116895048,
+    "short_interest": 23584129,
+    "short_pct_float": 0.0211,
+    "shares_outstanding": 1119391291,
+    "market_cap": 104942927872,
+    "avg_volume": 5980652,
+    "sector": "Utilities"
+  },
+  "DUK": {
+    "float_shares": 775438951,
+    "short_interest": 18181195,
+    "short_pct_float": 0.0234,
+    "shares_outstanding": 777670866,
+    "market_cap": 99028606976,
+    "avg_volume": 4383220,
+    "sector": "Utilities"
+  },
+  "MO": {
+    "float_shares": 1668487415,
+    "short_interest": 51438625,
+    "short_pct_float": 0.0308,
+    "shares_outstanding": 1671898087,
+    "market_cap": 108089663488,
+    "avg_volume": 10163315,
+    "sector": "Consumer Defensive"
+  },
+  "CME": {
+    "float_shares": 357011654,
+    "short_interest": 4946234,
+    "short_pct_float": 0.0138,
+    "shares_outstanding": 358622331,
+    "market_cap": 110212128768,
+    "avg_volume": 2199293,
+    "sector": "Financial Services"
+  },
+  "TJX": {
+    "float_shares": 1122435000,
+    "short_interest": 12195923,
+    "short_pct_float": 0.011,
+    "shares_outstanding": 1110467095,
+    "market_cap": 174174912512,
+    "avg_volume": 5142784,
+    "sector": "Consumer Cyclical"
+  },
+  "ZTS": {
+    "float_shares": 421296117,
+    "short_interest": 17296864,
+    "short_pct_float": 0.040999997,
+    "shares_outstanding": 422127709,
+    "market_cap": 50781081600,
+    "avg_volume": 4505715,
+    "sector": "Healthcare"
+  },
+  "CB": {
+    "float_shares": 353946122,
+    "short_interest": 4134464,
+    "short_pct_float": 0.0106,
+    "shares_outstanding": 391101227,
+    "market_cap": 127643705344,
+    "avg_volume": 1720437,
+    "sector": "Financial Services"
+  },
+  "AON": {
+    "float_shares": 208034688,
+    "short_interest": 2270305,
+    "short_pct_float": 0.0107,
+    "shares_outstanding": 214500000,
+    "market_cap": 70062448640,
+    "avg_volume": 1414925,
+    "sector": "Financial Services"
+  },
+  "MMC": {
+    "float_shares": null,
+    "short_interest": null,
+    "short_pct_float": null,
+    "shares_outstanding": null,
+    "market_cap": null,
+    "avg_volume": null,
+    "sector": "Other"
+  },
+  "ICE": {
+    "float_shares": 564040496,
+    "short_interest": 7453286,
+    "short_pct_float": 0.013300001,
+    "shares_outstanding": 567896513,
+    "market_cap": 89614966784,
+    "avg_volume": 3782486,
+    "sector": "Financial Services"
+  },
+  "WM": {
+    "float_shares": 402041073,
+    "short_interest": 5005276,
+    "short_pct_float": 0.0124,
+    "shares_outstanding": 403335781,
+    "market_cap": 91770986496,
+    "avg_volume": 2215164,
+    "sector": "Industrials"
+  },
+  "ITW": {
+    "float_shares": 261189896,
+    "short_interest": 9173834,
+    "short_pct_float": 0.0319,
+    "shares_outstanding": 288200000,
+    "market_cap": 75724546048,
+    "avg_volume": 1431454,
+    "sector": "Industrials"
+  },
+  "EQIX": {
+    "float_shares": 97866821,
+    "short_interest": 1915686,
+    "short_pct_float": 0.0223,
+    "shares_outstanding": 98254928,
+    "market_cap": 95008587776,
+    "avg_volume": 636169,
+    "sector": "Real Estate"
+  },
+  "NOC": {
+    "float_shares": 141545529,
+    "short_interest": 1970073,
+    "short_pct_float": 0.0139,
+    "shares_outstanding": 141921621,
+    "market_cap": 97049640960,
+    "avg_volume": 956152,
+    "sector": "Industrials"
+  },
+  "GD": {
+    "float_shares": 253119641,
+    "short_interest": 2407880,
+    "short_pct_float": 0.01,
+    "shares_outstanding": 270389759,
+    "market_cap": 93925285888,
+    "avg_volume": 1348425,
+    "sector": "Industrials"
+  },
+  "SHW": {
+    "float_shares": 229667669,
+    "short_interest": 4128809,
+    "short_pct_float": 0.0167,
+    "shares_outstanding": 247362348,
+    "market_cap": 77788889088,
+    "avg_volume": 1749725,
+    "sector": "Basic Materials"
+  },
+  "APH": {
+    "float_shares": 1221372539,
+    "short_interest": 15542972,
+    "short_pct_float": 0.0146,
+    "shares_outstanding": 1229214930,
+    "market_cap": 160621510656,
+    "avg_volume": 10016905,
+    "sector": "Technology"
+  },
+  "MCO": {
+    "float_shares": 163720593,
+    "short_interest": 2307776,
+    "short_pct_float": 0.0150999995,
+    "shares_outstanding": 178003875,
+    "market_cap": 78512168960,
+    "avg_volume": 1316925,
+    "sector": "Financial Services"
+  },
+  "PNC": {
+    "float_shares": 400329506,
+    "short_interest": 6871334,
+    "short_pct_float": 0.0171,
+    "shares_outstanding": 403370923,
+    "market_cap": 82451726336,
+    "avg_volume": 2738244,
+    "sector": "Financial Services"
+  },
+  "USB": {
+    "float_shares": 1548910416,
+    "short_interest": 25210791,
+    "short_pct_float": 0.0162,
+    "shares_outstanding": 1552252176,
+    "market_cap": 80046407680,
+    "avg_volume": 10865142,
+    "sector": "Financial Services"
+  },
+  "TGT": {
+    "float_shares": 451406451,
+    "short_interest": 19634863,
+    "short_pct_float": 0.0434,
+    "shares_outstanding": 452855589,
+    "market_cap": 52046692352,
+    "avg_volume": 6629422,
+    "sector": "Consumer Defensive"
+  },
+  "EMR": {
+    "float_shares": 559920600,
+    "short_interest": 14311693,
+    "short_pct_float": 0.0255,
+    "shares_outstanding": 562000000,
+    "market_cap": 73003679744,
+    "avg_volume": 3315903,
+    "sector": "Industrials"
+  },
+  "NSC": {
+    "float_shares": 224205973,
+    "short_interest": 10633155,
+    "short_pct_float": 0.047399998,
+    "shares_outstanding": 224572025,
+    "market_cap": 63991803904,
+    "avg_volume": 1207779,
+    "sector": "Industrials"
+  },
+  "FDX": {
+    "float_shares": 220603876,
+    "short_interest": 3197180,
+    "short_pct_float": 0.0136,
+    "shares_outstanding": 238606756,
+    "market_cap": 84891508736,
+    "avg_volume": 1927998,
+    "sector": "Industrials"
+  },
+  "ECL": {
+    "float_shares": 285430860,
+    "short_interest": 3251882,
+    "short_pct_float": 0.013200001,
+    "shares_outstanding": 281969448,
+    "market_cap": 73961324544,
+    "avg_volume": 1351798,
+    "sector": "Basic Materials"
+  },
+  "COF": {
+    "float_shares": 609101144,
+    "short_interest": 8761334,
+    "short_pct_float": 0.014199999,
+    "shares_outstanding": 621931593,
+    "market_cap": 114435407872,
+    "avg_volume": 5559944,
+    "sector": "Financial Services"
+  },
+  "HCA": {
+    "float_shares": 151190969,
+    "short_interest": 3542414,
+    "short_pct_float": 0.0232,
+    "shares_outstanding": 223568966,
+    "market_cap": 110599069696,
+    "avg_volume": 1094822,
+    "sector": "Healthcare"
+  },
+  "ELV": {
+    "float_shares": 220203667,
+    "short_interest": 4227962,
+    "short_pct_float": 0.019199999,
+    "shares_outstanding": 220704667,
+    "market_cap": 63836618752,
+    "avg_volume": 1880879,
+    "sector": "Healthcare"
+  },
+  "FCX": {
+    "float_shares": 1429282625,
+    "short_interest": 27928918,
+    "short_pct_float": 0.0195,
+    "shares_outstanding": 1437201606,
+    "market_cap": 78959853568,
+    "avg_volume": 20501064,
+    "sector": "Basic Materials"
+  },
+  "PSA": {
+    "float_shares": 157408222,
+    "short_interest": 4891646,
+    "short_pct_float": 0.0357,
+    "shares_outstanding": 175542279,
+    "market_cap": 47628132352,
+    "avg_volume": 1230176,
+    "sector": "Real Estate"
+  },
+  "WELL": {
+    "float_shares": 696803587,
+    "short_interest": 15642773,
+    "short_pct_float": 0.0256,
+    "shares_outstanding": 697752530,
+    "market_cap": 136061739008,
+    "avg_volume": 3154779,
+    "sector": "Real Estate"
+  },
+  "OKE": {
+    "float_shares": 627925772,
+    "short_interest": 26198852,
+    "short_pct_float": 0.0469,
+    "shares_outstanding": 629783634,
+    "market_cap": 56630140928,
+    "avg_volume": 4806527,
+    "sector": "Energy"
+  },
+  "CL": {
+    "float_shares": 751339060,
+    "short_interest": 19539470,
+    "short_pct_float": 0.0272,
+    "shares_outstanding": 801548028,
+    "market_cap": 68251815936,
+    "avg_volume": 6795269,
+    "sector": "Consumer Defensive"
+  },
+  "MPC": {
+    "float_shares": 293923734,
+    "short_interest": 7946172,
+    "short_pct_float": 0.0305,
+    "shares_outstanding": 294496878,
+    "market_cap": 68535930880,
+    "avg_volume": 2524489,
+    "sector": "Energy"
+  },
+  "APD": {
+    "float_shares": 222304212,
+    "short_interest": 4461380,
+    "short_pct_float": 0.020399999,
+    "shares_outstanding": 222656008,
+    "market_cap": 62045323264,
+    "avg_volume": 1495772,
+    "sector": "Basic Materials"
+  },
+  "AIG": {
+    "float_shares": 534810478,
+    "short_interest": 7745789,
+    "short_pct_float": 0.019299999,
+    "shares_outstanding": 536559663,
+    "market_cap": 40516763648,
+    "avg_volume": 4665228,
+    "sector": "Financial Services"
+  },
+  "PCAR": {
+    "float_shares": 515581653,
+    "short_interest": 11894284,
+    "short_pct_float": 0.026199998,
+    "shares_outstanding": 525894443,
+    "market_cap": 60120252416,
+    "avg_volume": 3172698,
+    "sector": "Industrials"
+  },
+  "F": {
+    "float_shares": 3879006656,
+    "short_interest": 159524483,
+    "short_pct_float": 0.045500003,
+    "shares_outstanding": 3918623149,
+    "market_cap": 46916231168,
+    "avg_volume": 65535037,
+    "sector": "Consumer Cyclical"
+  },
+  "GM": {
+    "float_shares": 900767807,
+    "short_interest": 23024525,
+    "short_pct_float": 0.0291,
+    "shares_outstanding": 903967853,
+    "market_cap": 70636257280,
+    "avg_volume": 8268364,
+    "sector": "Consumer Cyclical"
+  },
+  "CARR": {
+    "float_shares": 783520055,
+    "short_interest": 20223387,
+    "short_pct_float": 0.0293,
+    "shares_outstanding": 835433325,
+    "market_cap": 48729698304,
+    "avg_volume": 7226837,
+    "sector": "Industrials"
+  },
+  "CTAS": {
+    "float_shares": 341917644,
+    "short_interest": 8192237,
+    "short_pct_float": 0.0274,
+    "shares_outstanding": 400031927,
+    "market_cap": 72489787392,
+    "avg_volume": 1941923,
+    "sector": "Industrials"
+  },
+  "ORLY": {
+    "float_shares": 830840032,
+    "short_interest": 14197941,
+    "short_pct_float": 0.0171,
+    "shares_outstanding": 838487034,
+    "market_cap": 74872029184,
+    "avg_volume": 6013205,
+    "sector": "Consumer Cyclical"
+  },
+  "ADP": {
+    "float_shares": 401750494,
+    "short_interest": 10524424,
+    "short_pct_float": 0.0292,
+    "shares_outstanding": 402644364,
+    "market_cap": 84816945152,
+    "avg_volume": 3434428,
+    "sector": "Technology"
+  },
+  "PAYX": {
+    "float_shares": 321731756,
+    "short_interest": 19945763,
+    "short_pct_float": 0.0622,
+    "shares_outstanding": 358967450,
+    "market_cap": 33563457536,
+    "avg_volume": 3768747,
+    "sector": "Technology"
+  },
+  "FAST": {
+    "float_shares": 1144906899,
+    "short_interest": 31926847,
+    "short_pct_float": 0.0317,
+    "shares_outstanding": 1148328513,
+    "market_cap": 51043205120,
+    "avg_volume": 8674847,
+    "sector": "Industrials"
+  },
+  "ROST": {
+    "float_shares": 312100973,
+    "short_interest": 7045752,
+    "short_pct_float": 0.0223,
+    "shares_outstanding": 323444928,
+    "market_cap": 69302468608,
+    "avg_volume": 2494445,
+    "sector": "Consumer Cyclical"
+  },
+  "DXCM": {
+    "float_shares": 382940518,
+    "short_interest": 15321410,
+    "short_pct_float": 0.0513,
+    "shares_outstanding": 384864842,
+    "market_cap": 25717671936,
+    "avg_volume": 4984888,
+    "sector": "Healthcare"
+  },
+  "IDXX": {
+    "float_shares": 78746577,
+    "short_interest": 1747294,
+    "short_pct_float": 0.028800001,
+    "shares_outstanding": 79624034,
+    "market_cap": 46194794496,
+    "avg_volume": 501316,
+    "sector": "Healthcare"
+  },
+  "BIIB": {
+    "float_shares": 146278628,
+    "short_interest": 4202912,
+    "short_pct_float": 0.037,
+    "shares_outstanding": 146758528,
+    "market_cap": 26950735872,
+    "avg_volume": 1297181,
+    "sector": "Healthcare"
+  },
+  "ILMN": {
+    "float_shares": 148614213,
+    "short_interest": 7164759,
+    "short_pct_float": 0.0731,
+    "shares_outstanding": 152900000,
+    "market_cap": 18927491072,
+    "avg_volume": 2033969,
+    "sector": "Healthcare"
+  },
+  "MRNA": {
+    "float_shares": 368431090,
+    "short_interest": 70233907,
+    "short_pct_float": 0.2157,
+    "shares_outstanding": 396586862,
+    "market_cap": 20336973824,
+    "avg_volume": 11386494,
+    "sector": "Healthcare"
+  },
+  "GEHC": {
+    "float_shares": 454487340,
+    "short_interest": 10883565,
+    "short_pct_float": 0.031600002,
+    "shares_outstanding": 456290143,
+    "market_cap": 32693188608,
+    "avg_volume": 3414018,
+    "sector": "Healthcare"
+  },
+  "KEYS": {
+    "float_shares": 170536936,
+    "short_interest": 2317208,
+    "short_pct_float": 0.0154,
+    "shares_outstanding": 171502495,
+    "market_cap": 49561772032,
+    "avg_volume": 1421598,
+    "sector": "Technology"
+  },
+  "CDNS": {
+    "float_shares": 271309557,
+    "short_interest": 5294094,
+    "short_pct_float": 0.0217,
+    "shares_outstanding": 275875473,
+    "market_cap": 80699097088,
+    "avg_volume": 2415640,
+    "sector": "Technology"
+  },
+  "SNPS": {
+    "float_shares": 190485448,
+    "short_interest": 4488034,
+    "short_pct_float": 0.0235,
+    "shares_outstanding": 191562027,
+    "market_cap": 82846752768,
+    "avg_volume": 2140528,
+    "sector": "Technology"
+  },
+  "ANSS": {
+    "float_shares": null,
+    "short_interest": null,
+    "short_pct_float": null,
+    "shares_outstanding": null,
+    "market_cap": null,
+    "avg_volume": null,
+    "sector": "Other"
+  },
+  "PH": {
+    "float_shares": 125794966,
+    "short_interest": 1638246,
+    "short_pct_float": 0.012999999,
+    "shares_outstanding": 126216529,
+    "market_cap": 114359746560,
+    "avg_volume": 695098,
+    "sector": "Industrials"
+  },
+  "GWW": {
+    "float_shares": 43386110,
+    "short_interest": 1295960,
+    "short_pct_float": 0.034,
+    "shares_outstanding": 47329985,
+    "market_cap": 49953431552,
+    "avg_volume": 275230,
+    "sector": "Industrials"
+  },
+  "SRE": {
+    "float_shares": 652134360,
+    "short_interest": 10207847,
+    "short_pct_float": 0.0156,
+    "shares_outstanding": 653284140,
+    "market_cap": 61055938560,
+    "avg_volume": 3818010,
+    "sector": "Utilities"
+  },
+  "AEP": {
+    "float_shares": 540012320,
+    "short_interest": 18716404,
+    "short_pct_float": 0.0346,
+    "shares_outstanding": 543563480,
+    "market_cap": 69532639232,
+    "avg_volume": 3578871,
+    "sector": "Utilities"
+  },
+  "XEL": {
+    "float_shares": 622267211,
+    "short_interest": 25946535,
+    "short_pct_float": 0.0471,
+    "shares_outstanding": 623876813,
+    "market_cap": 48007319552,
+    "avg_volume": 4921766,
+    "sector": "Utilities"
+  },
+  "WEC": {
+    "float_shares": 324632894,
+    "short_interest": 14052438,
+    "short_pct_float": 0.0496,
+    "shares_outstanding": 325531361,
+    "market_cap": 36475789312,
+    "avg_volume": 2223362,
+    "sector": "Utilities"
+  },
+  "DTE": {
+    "float_shares": 206698248,
+    "short_interest": 4667423,
+    "short_pct_float": 0.0256,
+    "shares_outstanding": 208028117,
+    "market_cap": 29600319488,
+    "avg_volume": 1507744,
+    "sector": "Utilities"
+  },
+  "ETR": {
+    "float_shares": 450575401,
+    "short_interest": 11866855,
+    "short_pct_float": 0.0297,
+    "shares_outstanding": 452989837,
+    "market_cap": 45905985536,
+    "avg_volume": 2568428,
+    "sector": "Utilities"
+  },
+  "PPL": {
+    "float_shares": 749180594,
+    "short_interest": 40200601,
+    "short_pct_float": 0.061300002,
+    "shares_outstanding": 751306792,
+    "market_cap": 27723223040,
+    "avg_volume": 8799274,
+    "sector": "Utilities"
+  },
+  "FE": {
+    "float_shares": 547215746,
+    "short_interest": 25946703,
+    "short_pct_float": 0.0598,
+    "shares_outstanding": 577932879,
+    "market_cap": 28185786368,
+    "avg_volume": 4667333,
+    "sector": "Utilities"
+  },
+  "CMS": {
+    "float_shares": 304340303,
+    "short_interest": 15512023,
+    "short_pct_float": 0.0573,
+    "shares_outstanding": 306420901,
+    "market_cap": 22865127424,
+    "avg_volume": 3007874,
+    "sector": "Utilities"
+  },
+  "AWK": {
+    "float_shares": 194796776,
+    "short_interest": 9539258,
+    "short_pct_float": 0.0631,
+    "shares_outstanding": 195208666,
+    "market_cap": 26495672320,
+    "avg_volume": 1735842,
+    "sector": "Utilities"
+  },
+  "WTW": {
+    "float_shares": 94137465,
+    "short_interest": 1827122,
+    "short_pct_float": 0.0253,
+    "shares_outstanding": 94545903,
+    "market_cap": 28095516672,
+    "avg_volume": 773188,
+    "sector": "Financial Services"
+  },
+  "MMM": {
+    "float_shares": 525830945,
+    "short_interest": 9573306,
+    "short_pct_float": 0.0182,
+    "shares_outstanding": 526700000,
+    "market_cap": 77193150464,
+    "avg_volume": 4103945,
+    "sector": "Industrials"
+  },
+  "DOW": {
+    "float_shares": 715790464,
+    "short_interest": 26800612,
+    "short_pct_float": 0.0421,
+    "shares_outstanding": 719619373,
+    "market_cap": 25935083520,
+    "avg_volume": 13560984,
+    "sector": "Basic Materials"
+  },
+  "DD": {
+    "float_shares": 407202288,
+    "short_interest": 8688358,
+    "short_pct_float": 0.0241,
+    "shares_outstanding": 408923857,
+    "market_cap": 18493571072,
+    "avg_volume": 4686005,
+    "sector": "Basic Materials"
+  },
+  "LYB": {
+    "float_shares": 256808133,
+    "short_interest": 21771403,
+    "short_pct_float": 0.0677,
+    "shares_outstanding": 322169978,
+    "market_cap": 23025489920,
+    "avg_volume": 7727538,
+    "sector": "Basic Materials"
+  },
+  "PPG": {
+    "float_shares": 222971736,
+    "short_interest": 7012294,
+    "short_pct_float": 0.036,
+    "shares_outstanding": 223798650,
+    "market_cap": 22845366272,
+    "avg_volume": 2203916,
+    "sector": "Basic Materials"
+  },
+  "RPM": {
+    "float_shares": 126303116,
+    "short_interest": 2365675,
+    "short_pct_float": 0.0239,
+    "shares_outstanding": 128075683,
+    "market_cap": 12356438016,
+    "avg_volume": 1053769,
+    "sector": "Basic Materials"
+  },
+  "IFF": {
+    "float_shares": 254826019,
+    "short_interest": 9189178,
+    "short_pct_float": 0.0478,
+    "shares_outstanding": 255437821,
+    "market_cap": 17405679616,
+    "avg_volume": 1773674,
+    "sector": "Basic Materials"
+  },
+  "ALB": {
+    "float_shares": 117439469,
+    "short_interest": 9924799,
+    "short_pct_float": 0.1269,
+    "shares_outstanding": 117847220,
+    "market_cap": 19746480128,
+    "avg_volume": 2830527,
+    "sector": "Basic Materials"
+  },
+  "CF": {
+    "float_shares": 152560869,
+    "short_interest": 10835950,
+    "short_pct_float": 0.0844,
+    "shares_outstanding": 153616434,
+    "market_cap": 18467917824,
+    "avg_volume": 3758264,
+    "sector": "Basic Materials"
+  },
+  "MOS": {
+    "float_shares": 315882806,
+    "short_interest": 19207199,
+    "short_pct_float": 0.0689,
+    "shares_outstanding": 317505258,
+    "market_cap": 7645526528,
+    "avg_volume": 8342910,
+    "sector": "Basic Materials"
+  },
+  "NUE": {
+    "float_shares": 219743282,
+    "short_interest": 4321611,
+    "short_pct_float": 0.0252,
+    "shares_outstanding": 227774615,
+    "market_cap": 36759277568,
+    "avg_volume": 1692471,
+    "sector": "Basic Materials"
+  },
+  "STLD": {
+    "float_shares": 135026051,
+    "short_interest": 3656327,
+    "short_pct_float": 0.0312,
+    "shares_outstanding": 144882401,
+    "market_cap": 24328896512,
+    "avg_volume": 1280040,
+    "sector": "Basic Materials"
+  },
+  "IP": {
+    "float_shares": 527092109,
+    "short_interest": 47495666,
+    "short_pct_float": 0.118,
+    "shares_outstanding": 529469427,
+    "market_cap": 18827933696,
+    "avg_volume": 6763827,
+    "sector": "Consumer Cyclical"
+  },
+  "PKG": {
+    "float_shares": 87096436,
+    "short_interest": 3870864,
+    "short_pct_float": 0.0573,
+    "shares_outstanding": 89213394,
+    "market_cap": 18810605568,
+    "avg_volume": 1070954,
+    "sector": "Consumer Cyclical"
+  },
+  "PYPL": {
+    "float_shares": 918639080,
+    "short_interest": 41844575,
+    "short_pct_float": 0.045500003,
+    "shares_outstanding": 920664542,
+    "market_cap": 42562809856,
+    "avg_volume": 23797655,
+    "sector": "Financial Services"
+  },
+  "MELI": {
+    "float_shares": 47037352,
+    "short_interest": 891079,
+    "short_pct_float": 0.0176,
+    "shares_outstanding": 50697182,
+    "market_cap": 84465565696,
+    "avg_volume": 575876,
+    "sector": "Consumer Cyclical"
+  },
+  "SHOP": {
+    "float_shares": 1222930441,
+    "short_interest": 16415184,
+    "short_pct_float": 0.0134000005,
+    "shares_outstanding": 1226037779,
+    "market_cap": 158045634560,
+    "avg_volume": 11369205,
+    "sector": "Technology"
+  },
+  "PANW": {
+    "float_shares": 809251680,
+    "short_interest": 23895461,
+    "short_pct_float": 0.0295,
+    "shares_outstanding": 811000000,
+    "market_cap": 133864800256,
+    "avg_volume": 10144716,
+    "sector": "Technology"
+  },
+  "CRWD": {
+    "float_shares": 248952663,
+    "short_interest": 7057338,
+    "short_pct_float": 0.0287,
+    "shares_outstanding": 253614090,
+    "market_cap": 104821243904,
+    "avg_volume": 3759049,
+    "sector": "Technology"
+  },
+  "FTNT": {
+    "float_shares": 622364524,
+    "short_interest": 17699855,
+    "short_pct_float": 0.029000001,
+    "shares_outstanding": 739923583,
+    "market_cap": 61551751168,
+    "avg_volume": 6583338,
+    "sector": "Technology"
+  },
+  "ZS": {
+    "float_shares": 104232573,
+    "short_interest": 7155210,
+    "short_pct_float": 0.0686,
+    "shares_outstanding": 160790703,
+    "market_cap": 24408029184,
+    "avg_volume": 2543208,
+    "sector": "Technology"
+  },
+  "OKTA": {
+    "float_shares": 168121366,
+    "short_interest": 6634693,
+    "short_pct_float": 0.043899998,
+    "shares_outstanding": 169200461,
+    "market_cap": 14373370880,
+    "avg_volume": 3060849,
+    "sector": "Technology"
+  },
+  "DDOG": {
+    "float_shares": 325011683,
+    "short_interest": 9483638,
+    "short_pct_float": 0.033299997,
+    "shares_outstanding": 328483364,
+    "market_cap": 45728206848,
+    "avg_volume": 5740633,
+    "sector": "Technology"
+  },
+  "NET": {
+    "float_shares": 315423624,
+    "short_interest": 8443935,
+    "short_pct_float": 0.0299,
+    "shares_outstanding": 317576096,
+    "market_cap": 77664444416,
+    "avg_volume": 4467854,
+    "sector": "Technology"
+  },
+  "SNOW": {
+    "float_shares": 335556606,
+    "short_interest": 14351029,
+    "short_pct_float": 0.0431,
+    "shares_outstanding": 342200000,
+    "market_cap": 59611238400,
+    "avg_volume": 5792081,
+    "sector": "Technology"
+  },
+  "MDB": {
+    "float_shares": 78154543,
+    "short_interest": 3377564,
+    "short_pct_float": 0.0432,
+    "shares_outstanding": 80369527,
+    "market_cap": 22240299008,
+    "avg_volume": 1889401,
+    "sector": "Technology"
+  },
+  "HUBS": {
+    "float_shares": 50872994,
+    "short_interest": 3123161,
+    "short_pct_float": 0.0685,
+    "shares_outstanding": 52740536,
+    "market_cap": 13821185024,
+    "avg_volume": 1646403,
+    "sector": "Technology"
+  },
+  "TEAM": {
+    "float_shares": 167902115,
+    "short_interest": 9308190,
+    "short_pct_float": 0.055,
+    "shares_outstanding": 169610457,
+    "market_cap": 19625197568,
+    "avg_volume": 6012435,
+    "sector": "Technology"
+  },
+  "WDAY": {
+    "float_shares": 208439850,
+    "short_interest": 15643040,
+    "short_pct_float": 0.0738,
+    "shares_outstanding": 210000000,
+    "market_cap": 36046778368,
+    "avg_volume": 4929469,
+    "sector": "Technology"
+  },
+  "VEEV": {
+    "float_shares": 149846331,
+    "short_interest": 5584740,
+    "short_pct_float": 0.037100002,
+    "shares_outstanding": 164381855,
+    "market_cap": 30448449536,
+    "avg_volume": 2102725,
+    "sector": "Healthcare"
+  },
+  "FICO": {
+    "float_shares": 23052458,
+    "short_interest": 1352745,
+    "short_pct_float": 0.0675,
+    "shares_outstanding": 23722134,
+    "market_cap": 25224456192,
+    "avg_volume": 322933,
+    "sector": "Technology"
+  },
+  "ADSK": {
+    "float_shares": 210474610,
+    "short_interest": 6283614,
+    "short_pct_float": 0.0298,
+    "shares_outstanding": 211000000,
+    "market_cap": 52457279488,
+    "avg_volume": 2141850,
+    "sector": "Technology"
+  },
+  "TTWO": {
+    "float_shares": 184325501,
+    "short_interest": 8754924,
+    "short_pct_float": 0.053000003,
+    "shares_outstanding": 185175456,
+    "market_cap": 37190639616,
+    "avg_volume": 2195735,
+    "sector": "Communication Services"
+  },
+  "EA": {
+    "float_shares": 224757865,
+    "short_interest": 12211442,
+    "short_pct_float": 0.0554,
+    "shares_outstanding": 250253713,
+    "market_cap": 50333532160,
+    "avg_volume": 2476201,
+    "sector": "Communication Services"
+  },
+  "PINS": {
+    "float_shares": 577320371,
+    "short_interest": 38630865,
+    "short_pct_float": 0.0776,
+    "shares_outstanding": 561140092,
+    "market_cap": 12584422400,
+    "avg_volume": 19024689,
+    "sector": "Communication Services"
+  },
+  "SNAP": {
+    "float_shares": 1103679457,
+    "short_interest": 95264161,
+    "short_pct_float": 0.0861,
+    "shares_outstanding": 1434801757,
+    "market_cap": 7617173504,
+    "avg_volume": 47456930,
+    "sector": "Communication Services"
+  },
+  "ZM": {
+    "float_shares": 260273367,
+    "short_interest": 6337563,
+    "short_pct_float": 0.0239,
+    "shares_outstanding": 265969816,
+    "market_cap": 23081068544,
+    "avg_volume": 3970072,
+    "sector": "Technology"
+  },
+  "DOCU": {
+    "float_shares": 192158954,
+    "short_interest": 14870152,
+    "short_pct_float": 0.097200006,
+    "shares_outstanding": 194427928,
+    "market_cap": 9486139392,
+    "avg_volume": 4714208,
+    "sector": "Technology"
+  },
+  "TWLO": {
+    "float_shares": 145147381,
+    "short_interest": 6206345,
+    "short_pct_float": 0.0466,
+    "shares_outstanding": 151513999,
+    "market_cap": 19268472832,
+    "avg_volume": 2397694,
+    "sector": "Technology"
+  },
+  "LYFT": {
+    "float_shares": 321089705,
+    "short_interest": 67578957,
+    "short_pct_float": 0.1713,
+    "shares_outstanding": 398107601,
+    "market_cap": 5327374336,
+    "avg_volume": 17043286,
+    "sector": "Technology"
+  },
+  "ABNB": {
+    "float_shares": 407837355,
+    "short_interest": 15231731,
+    "short_pct_float": 0.0367,
+    "shares_outstanding": 423573275,
+    "market_cap": 79489556480,
+    "avg_volume": 4571350,
+    "sector": "Consumer Cyclical"
+  },
+  "DASH": {
+    "float_shares": 374770925,
+    "short_interest": 12037849,
+    "short_pct_float": 0.0295,
+    "shares_outstanding": 409966858,
+    "market_cap": 69499527168,
+    "avg_volume": 4914052,
+    "sector": "Consumer Cyclical"
+  },
+  "EXPE": {
+    "float_shares": 115378836,
+    "short_interest": 8210795,
+    "short_pct_float": 0.0813,
+    "shares_outstanding": 117011421,
+    "market_cap": 28997875712,
+    "avg_volume": 2662177,
+    "sector": "Consumer Cyclical"
+  },
+  "HLT": {
+    "float_shares": 224990104,
+    "short_interest": 6069617,
+    "short_pct_float": 0.0305,
+    "shares_outstanding": 229291615,
+    "market_cap": 69886287872,
+    "avg_volume": 1949713,
+    "sector": "Consumer Cyclical"
+  },
+  "MAR": {
+    "float_shares": 230671704,
+    "short_interest": 7327480,
+    "short_pct_float": 0.0346,
+    "shares_outstanding": 264984554,
+    "market_cap": 86522757120,
+    "avg_volume": 1605896,
+    "sector": "Consumer Cyclical"
+  },
+  "RCL": {
+    "float_shares": 256766528,
+    "short_interest": 11822369,
+    "short_pct_float": 0.0529,
+    "shares_outstanding": 270528303,
+    "market_cap": 76076007424,
+    "avg_volume": 2440298,
+    "sector": "Consumer Cyclical"
+  },
+  "CCL": {
+    "float_shares": 1283467535,
+    "short_interest": 38516187,
+    "short_pct_float": 0.0337,
+    "shares_outstanding": 1239000212,
+    "market_cap": 35251802112,
+    "avg_volume": 22413800,
+    "sector": "Consumer Cyclical"
+  },
+  "LUV": {
+    "float_shares": 439135106,
+    "short_interest": 24449185,
+    "short_pct_float": 0.058000002,
+    "shares_outstanding": 491317990,
+    "market_cap": 20867207168,
+    "avg_volume": 10107252,
+    "sector": "Industrials"
+  },
+  "DAL": {
+    "float_shares": 644997924,
+    "short_interest": 15362648,
+    "short_pct_float": 0.026500002,
+    "shares_outstanding": 653130708,
+    "market_cap": 42538401792,
+    "avg_volume": 10096813,
+    "sector": "Industrials"
+  },
+  "UAL": {
+    "float_shares": 320593934,
+    "short_interest": 12877318,
+    "short_pct_float": 0.0452,
+    "shares_outstanding": 323430419,
+    "market_cap": 30418419712,
+    "avg_volume": 6347206,
+    "sector": "Industrials"
+  },
+  "AAL": {
+    "float_shares": 650248134,
+    "short_interest": 50009224,
+    "short_pct_float": 0.0762,
+    "shares_outstanding": 660304573,
+    "market_cap": 7137892864,
+    "avg_volume": 65269555,
+    "sector": "Industrials"
+  },
+  "UPS": {
+    "float_shares": 744398982,
+    "short_interest": 16341281,
+    "short_pct_float": 0.022,
+    "shares_outstanding": 745633402,
+    "market_cap": 82987548672,
+    "avg_volume": 6517813,
+    "sector": "Industrials"
+  },
+  "XPO": {
+    "float_shares": 103257195,
+    "short_interest": 6805034,
+    "short_pct_float": 0.077199996,
+    "shares_outstanding": 117147357,
+    "market_cap": 21786519552,
+    "avg_volume": 1736474,
+    "sector": "Industrials"
+  },
+  "DLTR": {
+    "float_shares": 184594185,
+    "short_interest": 12235670,
+    "short_pct_float": 0.0752,
+    "shares_outstanding": 197298217,
+    "market_cap": 21529833472,
+    "avg_volume": 3037574,
+    "sector": "Consumer Defensive"
+  },
+  "DG": {
+    "float_shares": 218695747,
+    "short_interest": 7630703,
+    "short_pct_float": 0.0392,
+    "shares_outstanding": 220226320,
+    "market_cap": 27552514048,
+    "avg_volume": 3140242,
+    "sector": "Consumer Defensive"
+  },
+  "LULU": {
+    "float_shares": 106609682,
+    "short_interest": 4508364,
+    "short_pct_float": 0.0529,
+    "shares_outstanding": 110482671,
+    "market_cap": 19283603456,
+    "avg_volume": 2726784,
+    "sector": "Consumer Cyclical"
+  },
+  "BK": {
+    "float_shares": 685162653,
+    "short_interest": 8554557,
+    "short_pct_float": 0.0139,
+    "shares_outstanding": 688226982,
+    "market_cap": 81143545856,
+    "avg_volume": 3648786,
+    "sector": "Financial Services"
+  },
+  "TFC": {
+    "float_shares": 1245858026,
+    "short_interest": 26128103,
+    "short_pct_float": 0.0209,
+    "shares_outstanding": 1241009752,
+    "market_cap": 57386991616,
+    "avg_volume": 9621622,
+    "sector": "Financial Services"
+  },
+  "DFS": {
+    "float_shares": null,
+    "short_interest": null,
+    "short_pct_float": null,
+    "shares_outstanding": null,
+    "market_cap": null,
+    "avg_volume": null,
+    "sector": "Other"
+  },
+  "SYF": {
+    "float_shares": 345312571,
+    "short_interest": 14731523,
+    "short_pct_float": 0.0592,
+    "shares_outstanding": 347596279,
+    "market_cap": 23969388544,
+    "avg_volume": 4612498,
+    "sector": "Financial Services"
+  },
+  "FIS": {
+    "float_shares": 513205127,
+    "short_interest": 11977794,
+    "short_pct_float": 0.0269,
+    "shares_outstanding": 514403688,
+    "market_cap": 25773432832,
+    "avg_volume": 4831654,
+    "sector": "Technology"
+  },
+  "FISV": {
+    "float_shares": null,
+    "short_interest": null,
+    "short_pct_float": null,
+    "shares_outstanding": 534777512,
+    "market_cap": 31039432704,
+    "avg_volume": 8401816,
+    "sector": "Other"
+  },
+  "GPN": {
+    "float_shares": 233569260,
+    "short_interest": 10513295,
+    "short_pct_float": 0.0377,
+    "shares_outstanding": 275243013,
+    "market_cap": 19889786880,
+    "avg_volume": 3765542,
+    "sector": "Industrials"
+  }
+}
