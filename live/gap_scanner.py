@@ -59,6 +59,11 @@ try:
 except ImportError:
     TradeLogger = None
 
+try:
+    from live.shadow_tracker import ShadowTracker
+except ImportError:
+    ShadowTracker = None
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Configuration
@@ -556,6 +561,9 @@ class GapScannerBot:
         # Trade logger for ML training
         self.trade_logger = TradeLogger() if TradeLogger else None
 
+        # Shadow tracker — logs all candidates for training data
+        self.shadow_tracker = ShadowTracker() if ShadowTracker else None
+
         # Daily state
         self.candidates = None
         self.target_ticker = None
@@ -841,6 +849,10 @@ class GapScannerBot:
         self.candidates = run_pre_market_scan()
 
         if self.candidates is not None and not self.candidates.empty:
+            # Shadow tracker: record ALL candidates from re-scan
+            if self.shadow_tracker:
+                self.shadow_tracker.record_candidates(self.candidates)
+
             # Filter out stocks we already traded today
             self.candidates = self.candidates[
                 ~self.candidates["ticker"].isin(traded_tickers)
@@ -1304,6 +1316,10 @@ class GapScannerBot:
         self.trade_taken = True
         self.entered_trade = True
 
+        # Shadow tracker: mark this ticker as actually traded
+        if self.shadow_tracker:
+            self.shadow_tracker.mark_traded(ticker)
+
         # Log entry for ML training
         if self.trade_logger:
             try:
@@ -1649,6 +1665,10 @@ class GapScannerBot:
                     self.scans_completed += 1
                     self.last_scan_time = current_time
 
+                    # Shadow tracker: record ALL candidates
+                    if self.shadow_tracker and self.candidates is not None and not self.candidates.empty:
+                        self.shadow_tracker.record_candidates(self.candidates)
+
                     if self.candidates is None or self.candidates.empty:
                         # Check if more re-scans are scheduled
                         remaining = [t for t in ScannerConfig.RESCAN_TIMES
@@ -1855,6 +1875,30 @@ class GapScannerBot:
             if self.position:
                 logger.warning("You may have an open position! Check TWS.")
         finally:
+            # Resolve shadow trades (fetch intraday data for all candidates)
+            if self.shadow_tracker:
+                try:
+                    logger.info("Resolving shadow trades...")
+                    self.shadow_tracker.resolve_shadows(
+                        trail_atr_mult=ScannerConfig.TRAIL_ATR_MULT
+                    )
+                    summary = self.shadow_tracker.get_summary()
+                    if summary:
+                        logger.info(
+                            f"Shadow log: {summary['real_trades']} real + "
+                            f"{summary['shadow_trades']} shadow = "
+                            f"{summary['total_entries']} total data points"
+                        )
+                except Exception as e:
+                    logger.warning(f"Shadow resolve failed: {e}")
+
+            # Sync stats to shared repo
+            try:
+                from lattice.stats_sync import sync_and_write
+                sync_and_write()
+            except Exception:
+                pass
+
             # Daily summary Discord
             try:
                 from live.alerts import send_discord
