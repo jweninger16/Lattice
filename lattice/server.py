@@ -416,6 +416,28 @@ async def bot_status():
     }
 
 
+# ── Admin / Stats ───────────────────────────────────────────────────
+@app.get("/api/admin/users")
+async def admin_users():
+    """Get all users' stats (synced via git)."""
+    try:
+        from lattice.stats_sync import read_all_stats
+        return read_all_stats()
+    except Exception as e:
+        return []
+
+
+@app.post("/api/admin/sync")
+async def admin_sync():
+    """Write own stats and push to git."""
+    try:
+        from lattice.stats_sync import sync_and_write
+        sync_and_write()
+        return {"status": "synced"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
 @app.post("/api/bot/control")
 async def bot_control(req: BotControlRequest):
     if req.action == "start":

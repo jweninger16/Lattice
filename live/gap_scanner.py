@@ -715,6 +715,13 @@ class GapScannerBot:
 
         self._save_account()
 
+        # Sync stats to shared repo
+        try:
+            from lattice.stats_sync import write_stats
+            write_stats()
+        except Exception:
+            pass  # Don't break trading if stats fail
+
         self.daily_pnl = pnl_pct
         win_rate = (self.account["wins"] / self.account["total_trades"] * 100
                     if self.account["total_trades"] > 0 else 0)

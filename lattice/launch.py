@@ -103,6 +103,15 @@ def main():
     # Install deps if needed
     check_dependencies()
 
+    # Write and push stats on startup
+    try:
+        sys.path.insert(0, str(PROJECT_ROOT))
+        from lattice.stats_sync import sync_and_write
+        sync_and_write()
+        print("  Stats synced.")
+    except Exception:
+        pass
+
     # Open browser after server starts
     threading.Thread(target=open_browser_delayed, daemon=True).start()
 

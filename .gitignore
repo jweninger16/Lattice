@@ -1,15 +1,32 @@
-.env
+# ── User-specific data (never push to GitHub) ──
+lattice/users.json
+lattice/lattice_settings.json
+live/gap_scanner_account.json
+data/trade_log.csv
+data/
+
+# ── Shared stats (DO push — this is how users see each other) ──
+!lattice/stats/
+
+# ── Python ──
 venv/
 __pycache__/
 *.pyc
-data/raw/
-data/processed/
-data/universe/
-models/*.pkl
-live/positions.db
-live/positions.json
-live/positions.json.bak
-logs/
-backtest/*.png
+*.pyo
 *.egg-info/
+dist/
+build/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──
+Thumbs.db
 .DS_Store
+desktop.ini
+
+# ── Logs ──
+*.log

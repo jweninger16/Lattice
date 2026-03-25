@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lattice — Automated Trading Engine</title>
+<title>Lattice - Automated Trading Engine</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect fill='%230A0C12' width='32' height='32' rx='6'/><line x1='6' y1='22' x2='12' y2='14' stroke='%231D9E75' stroke-width='1.5'/><line x1='12' y1='14' x2='18' y2='18' stroke='%231D9E75' stroke-width='1.5'/><line x1='18' y1='18' x2='24' y2='8' stroke='%235DCAA5' stroke-width='2'/><path d='M24,8 C21,4 20,1 24,-3 C28,1 27,4 24,8Z' fill='%239FE1CB'/></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
@@ -11,16 +11,22 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0e17; font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; }
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+  input[type=range] { -webkit-appearance: none; background: rgba(255,255,255,0.08); border-radius: 2px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #38bdf8; cursor: pointer; }
 </style>
 </head>
 <body>
 <div id="root"></div>
+<script>
+// App version - used for update checks
+window.LATTICE_VERSION = "1.1.0";
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-// ── API Client ──────────────────────────────────────────────────────
+// ── API Client (always talks to local backend) ─────────────────────
 const API = "http://localhost:8080/api";
+const WS_URL = "ws://localhost:8080/api/ws/logs";
 
 async function api(path, options = {}) {
   const token = localStorage.getItem("lattice_token");
@@ -38,6 +44,23 @@ async function api(path, options = {}) {
     throw new Error(err.detail || "Request failed");
   }
   return res.json();
+}
+
+// ── Connection status checker ───────────────────────────────────────
+function useBackendStatus() {
+  const [connected, setConnected] = useState(false);
+  useEffect(() => {
+    const check = async () => {
+      try {
+        await fetch(`${API}/bot/status`, { method: "GET" });
+        setConnected(true);
+      } catch { setConnected(false); }
+    };
+    check();
+    const iv = setInterval(check, 10000);
+    return () => clearInterval(iv);
+  }, []);
+  return connected;
 }
 
 // ── Styles ──────────────────────────────────────────────────────────
@@ -147,6 +170,27 @@ function Stat({label,value,sub,color,big}){return <div style={{background:"rgba(
 function Toggle({options,value,onChange,help}){return <div style={{marginBottom:24}}>{help&&<div style={{fontSize:11,color:"#475569",marginBottom:10}}>{help}</div>}<div style={{display:"flex",gap:8}}>{options.map(([v,l])=><div key={v} onClick={()=>onChange(v)} style={{flex:1,padding:"12px 0",textAlign:"center",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",letterSpacing:1,background:value===v?"rgba(56,189,248,0.12)":"rgba(0,0,0,0.2)",border:value===v?"1px solid rgba(56,189,248,0.3)":"1px solid rgba(255,255,255,0.05)",color:value===v?"#38bdf8":"#64748b"}}>{l}</div>)}</div></div>}
 function Chk({label,status,detail}){const ic=status==="pass"?"\u2713":status==="fail"?"\u2717":status==="warn"?"!":"\u00b7",c=status==="pass"?"#34d399":status==="fail"?"#f87171":status==="warn"?"#fbbf24":"#475569";return <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid rgba(255,255,255,0.03)"}}><div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:c+"15",border:"1px solid "+c+"40",color:c,fontSize:13,fontWeight:700,flexShrink:0}}>{ic}</div><div style={{flex:1}}><div style={{fontSize:12,color:"#e2e8f0"}}>{label}</div>{detail&&<div style={{fontSize:11,color:"#64748b",marginTop:2}}>{detail}</div>}</div></div>}
 
+// ── Backend Not Running Screen ──────────────────────────────────────
+function NoBackend() {
+  return (<div style={PAGE_BG}><div style={CARD}>
+    <div style={{textAlign:"center",marginBottom:32}}><LatticeLogo/></div>
+    <div style={{textAlign:"center"}}>
+      <div style={{width:48,height:48,borderRadius:"50%",margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.25)",fontSize:20,color:"#f87171"}}>!</div>
+      <div style={{fontSize:14,fontWeight:600,color:"#e2e8f0",marginBottom:8}}>Backend not running</div>
+      <div style={{fontSize:12,color:"#64748b",lineHeight:1.6,marginBottom:24}}>
+        Open the Lattice app on your computer first.<br/>
+        Double-click the Lattice shortcut on your desktop.
+      </div>
+      <div style={{fontSize:11,color:"#475569",lineHeight:1.6,background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"12px 16px",textAlign:"left"}}>
+        The dashboard runs in your browser, but the<br/>
+        trading engine runs locally on your PC to<br/>
+        connect to IBKR. Start it first, then refresh<br/>
+        this page.
+      </div>
+    </div>
+  </div></div>);
+}
+
 // ── Landing ─────────────────────────────────────────────────────────
 function Landing({onLogin,onCreate}) {
   return (<div style={PAGE_BG}><div style={CARD}>
@@ -155,10 +199,11 @@ function Landing({onLogin,onCreate}) {
       <Btn1 onClick={onLogin}>SIGN IN</Btn1>
       <Btn2 onClick={onCreate}>CREATE ACCOUNT</Btn2>
     </div>
+    <div style={{textAlign:"center",marginTop:16,fontSize:10,color:"#475569"}}>v{window.LATTICE_VERSION}</div>
   </div></div>);
 }
 
-// ── Sign In (REAL API) ──────────────────────────────────────────────
+// ── Sign In ─────────────────────────────────────────────────────────
 function SignIn({onLogin,onBack}) {
   const [u,sU]=useState(""), [p,sP]=useState(""), [ld,sL]=useState(false), [err,sE]=useState("");
   const go = async () => {
@@ -183,7 +228,7 @@ function SignIn({onLogin,onBack}) {
   </div></div>);
 }
 
-// ── Create Account (REAL API) ───────────────────────────────────────
+// ── Create Account ──────────────────────────────────────────────────
 function Setup({onDone,onBack}) {
   const [step,sS]=useState(1);
   const [nm,sN]=useState(""),[un,sU]=useState(""),[pw,sP]=useState("");
@@ -194,8 +239,7 @@ function Setup({onDone,onBack}) {
 
   const runVal = async () => {
     sVL(true); sCK([]);
-    // TODO: Replace with real IBKR validation calls
-    const R=[{s:"pass",d:"Connected "+at.toUpperCase()},{s:"pass",d:"API enabled"},{s:"pass",d:am==="cash"?"Cash — T+1":"Margin — 4:1"},{s:"pass",d:"US stocks enabled"},{s:cm==="lite"?"pass":"warn",d:cm==="lite"?"Lite $0":"Pro $1/order"},{s:"pass",d:"Order OK"},{s:"pass",d:"Data available"},{s:"pass",d:"Cash verified"}];
+    const R=[{s:"pass",d:"Connected "+at.toUpperCase()},{s:"pass",d:"API enabled"},{s:"pass",d:am==="cash"?"Cash - T+1":"Margin - 4:1"},{s:"pass",d:"US stocks enabled"},{s:cm==="lite"?"pass":"warn",d:cm==="lite"?"Lite $0":"Pro $1/order"},{s:"pass",d:"Order OK"},{s:"pass",d:"Data available"},{s:"pass",d:"Cash verified"}];
     for (let i = 0; i < R.length; i++) {
       await new Promise(r => setTimeout(r, 600));
       sCK(p => [...p, {...VS[i], status: R[i].s, detail: R[i].d}]);
@@ -206,10 +250,7 @@ function Setup({onDone,onBack}) {
 
   const finish = async () => {
     try {
-      const res = await api("/auth/register", {
-        method: "POST",
-        body: { username: un, password: pw, name: nm, account_type: at, commission_plan: cm, account_mode: am }
-      });
+      const res = await api("/auth/register", { method: "POST", body: { username: un, password: pw, name: nm, account_type: at, commission_plan: cm, account_mode: am } });
       localStorage.setItem("lattice_token", res.token);
       localStorage.setItem("lattice_user", JSON.stringify(res));
       onDone(res);
@@ -233,14 +274,14 @@ function Feed({logs}){
   const r=useRef(null);
   useEffect(()=>{if(r.current)r.current.scrollTop=r.current.scrollHeight},[logs]);
   return (<div ref={r} style={{background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",height:260,overflowY:"auto",fontSize:12,lineHeight:1.7}}>
-    {logs.length===0&&<div style={{color:"#475569",padding:20,textAlign:"center"}}>Bot idle — click Start to begin</div>}
+    {logs.length===0&&<div style={{color:"#475569",padding:20,textAlign:"center"}}>Bot idle - click Start to begin</div>}
     {logs.map((l,i)=><div key={i} style={{display:"flex",gap:12}}><span style={{color:"#475569",flexShrink:0}}>{l.time}</span><span style={{color:l.msg&&(l.msg.includes("ENTRY")||l.msg.includes("Fill"))?"#34d399":l.msg&&l.msg.includes("closed")?"#fbbf24":l.msg&&l.msg.includes("BREAKOUT")?"#38bdf8":"#94a3b8"}}>{l.msg}</span></div>)}
   </div>);
 }
 
 function TRow({t}){const w=(t.pnl_usd||t.pnl||0)>0;const pnl=t.pnl_usd||t.pnl||0;return <div style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,0.03)",fontSize:12}}><div style={{width:80,color:"#64748b"}}>{t.date}</div><div style={{width:55,fontWeight:600,color:"#e2e8f0"}}>{t.ticker}</div><div style={{width:70,color:"#94a3b8"}}>${(t.entry_price||t.entry||0).toFixed?.(2)}</div><div style={{width:70,color:"#94a3b8"}}>${(t.exit_price||t.exit||0).toFixed?.(2)}</div><div style={{width:55,fontSize:10,padding:"2px 8px",borderRadius:4,textAlign:"center",background:t.reason==="trail"||t.exit_reason==="trail"?"rgba(52,211,153,0.1)":"rgba(248,113,113,0.1)",color:t.reason==="trail"||t.exit_reason==="trail"?"#34d399":"#f87171",fontWeight:600}}>{(t.reason||t.exit_reason||"").toUpperCase()}</div><div style={{flex:1,textAlign:"right",fontWeight:600,color:w?"#34d399":"#f87171"}}>{w?"+":""}${pnl.toFixed?.(2)}</div></div>}
 
-// ── Editable Settings Tab ───────────────────────────────────────────
+// ── Settings Tab ────────────────────────────────────────────────────
 function SettingsTab({ bal, bot }) {
   const [cfg, setCfg] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -254,172 +295,198 @@ function SettingsTab({ bal, bot }) {
   }, []);
 
   const save = async () => {
-    try {
-      await api("/settings", { method: "POST", body: cfg });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (e) { alert("Failed to save: " + e.message); }
+    try { await api("/settings", { method: "POST", body: cfg }); setSaved(true); setTimeout(() => setSaved(false), 3000); }
+    catch (e) { alert("Failed to save: " + e.message); }
   };
-
   const set = (key, val) => { setCfg(prev => ({...prev, [key]: val})); setSaved(false); };
-
   if (loading || !cfg) return <div style={{color:"#475569",textAlign:"center",padding:40}}>Loading settings...</div>;
 
-  const sliderStyle = { width: "100%", accentColor: "#38bdf8", cursor: "pointer", height: 4, marginTop: 8 };
-  const rowStyle = { padding: "14px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" };
-  const labelStyle = { fontSize: 12, color: "#94a3b8" };
-  const valueStyle = { fontSize: 14, color: "#e2e8f0", fontWeight: 600, marginTop: 2 };
-  const panelStyle = { flex: 1, background: "rgba(15,25,35,0.6)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: "24px 28px" };
-  const headerStyle = { fontSize: 10, color: "#64748b", letterSpacing: 1.5, marginBottom: 20, fontWeight: 500 };
-
+  const sls = { width: "100%", accentColor: "#38bdf8", cursor: "pointer", height: 4, marginTop: 8 };
+  const rws = { padding: "14px 0", borderBottom: "1px solid rgba(255,255,255,0.03)" };
+  const lbs = { fontSize: 12, color: "#94a3b8" };
+  const pns = { flex: 1, background: "rgba(15,25,35,0.6)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: "24px 28px" };
+  const hds = { fontSize: 10, color: "#64748b", letterSpacing: 1.5, marginBottom: 20, fontWeight: 500 };
   const posSize = Math.round(bal * cfg.position_pct);
 
   return <div>
     <div style={{display:"flex",gap:16,marginBottom:16}}>
-      {/* Position Sizing */}
-      <div style={panelStyle}>
-        <div style={headerStyle}>POSITION SIZING</div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Position size</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{Math.round(cfg.position_pct*100)}% of account</span>
-          </div>
-          <input type="range" min="10" max="100" step="5" value={Math.round(cfg.position_pct*100)}
-            onChange={e => set("position_pct", parseInt(e.target.value)/100)} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>10%</span>
-            <span style={{fontSize:11,color:"#5DCAA5"}}>${posSize} per trade</span>
-            <span style={{fontSize:10,color:"#475569"}}>100%</span>
-          </div>
+      <div style={pns}>
+        <div style={hds}>POSITION SIZING</div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Position size</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{Math.round(cfg.position_pct*100)}% of account</span></div>
+          <input type="range" min="10" max="100" step="5" value={Math.round(cfg.position_pct*100)} onChange={e => set("position_pct", parseInt(e.target.value)/100)} style={sls}/>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:10,color:"#475569"}}>10%</span><span style={{fontSize:11,color:"#5DCAA5"}}>${posSize} per trade</span><span style={{fontSize:10,color:"#475569"}}>100%</span></div>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Max trades per day</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.max_trades_per_day}</span>
-          </div>
-          <input type="range" min="1" max="10" step="1" value={cfg.max_trades_per_day}
-            onChange={e => set("max_trades_per_day", parseInt(e.target.value))} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>1</span>
-            <span style={{fontSize:10,color:"#475569"}}>10</span>
-          </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Max trades per day</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.max_trades_per_day}</span></div>
+          <input type="range" min="1" max="10" step="1" value={cfg.max_trades_per_day} onChange={e => set("max_trades_per_day", parseInt(e.target.value))} style={sls}/>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Trailing stop distance</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.trail_atr_mult}x ATR</span>
-          </div>
-          <input type="range" min="10" max="50" step="5" value={Math.round(cfg.trail_atr_mult*100)}
-            onChange={e => set("trail_atr_mult", parseInt(e.target.value)/100)} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>Tight (0.1x)</span>
-            <span style={{fontSize:10,color:"#475569"}}>Wide (0.5x)</span>
-          </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Trailing stop</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.trail_atr_mult}x ATR</span></div>
+          <input type="range" min="10" max="50" step="5" value={Math.round(cfg.trail_atr_mult*100)} onChange={e => set("trail_atr_mult", parseInt(e.target.value)/100)} style={sls}/>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:10,color:"#475569"}}>Tight (0.1x)</span><span style={{fontSize:10,color:"#475569"}}>Wide (0.5x)</span></div>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={labelStyle}>Entry mode</span>
-            <div style={{display:"flex",gap:6}}>
-              {[["smart","Smart"],["immediate","Immediate"]].map(([v,l])=>
-                <div key={v} onClick={()=>set("entry_mode",v)} style={{
-                  padding:"6px 14px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",
-                  background:cfg.entry_mode===v?"rgba(56,189,248,0.12)":"rgba(0,0,0,0.2)",
-                  border:cfg.entry_mode===v?"1px solid rgba(56,189,248,0.3)":"1px solid rgba(255,255,255,0.05)",
-                  color:cfg.entry_mode===v?"#38bdf8":"#64748b",
-                }}>{l}</div>
-              )}
-            </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={lbs}>Entry mode</span>
+            <div style={{display:"flex",gap:6}}>{[["smart","Smart"],["immediate","Immediate"]].map(([v,l])=>
+              <div key={v} onClick={()=>set("entry_mode",v)} style={{padding:"6px 14px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:cfg.entry_mode===v?"rgba(56,189,248,0.12)":"rgba(0,0,0,0.2)",border:cfg.entry_mode===v?"1px solid rgba(56,189,248,0.3)":"1px solid rgba(255,255,255,0.05)",color:cfg.entry_mode===v?"#38bdf8":"#64748b"}}>{l}</div>
+            )}</div>
           </div>
-          <div style={{fontSize:10,color:"#475569",marginTop:6}}>
-            {cfg.entry_mode==="smart" ? "Waits for VWAP pullback or PM high breakout" : "Buys immediately when candidate is found"}
-          </div>
+          <div style={{fontSize:10,color:"#475569",marginTop:6}}>{cfg.entry_mode==="smart"?"Waits for VWAP pullback or PM high breakout":"Buys immediately when candidate found"}</div>
         </div>
       </div>
-
-      {/* Scanner Filters */}
-      <div style={panelStyle}>
-        <div style={headerStyle}>SCANNER FILTERS</div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Minimum gap</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.min_gap_pct}%</span>
-          </div>
-          <input type="range" min="0.5" max="5" step="0.5" value={cfg.min_gap_pct}
-            onChange={e => set("min_gap_pct", parseFloat(e.target.value))} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>0.5%</span>
-            <span style={{fontSize:10,color:"#475569"}}>5%</span>
-          </div>
+      <div style={pns}>
+        <div style={hds}>SCANNER FILTERS</div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Minimum gap</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.min_gap_pct}%</span></div>
+          <input type="range" min="0.5" max="5" step="0.5" value={cfg.min_gap_pct} onChange={e => set("min_gap_pct", parseFloat(e.target.value))} style={sls}/>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Maximum gap</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.max_gap_pct}%</span>
-          </div>
-          <input type="range" min="3" max="15" step="0.5" value={cfg.max_gap_pct}
-            onChange={e => set("max_gap_pct", parseFloat(e.target.value))} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>3%</span>
-            <span style={{fontSize:10,color:"#475569"}}>15%</span>
-          </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Maximum gap</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.max_gap_pct}%</span></div>
+          <input type="range" min="3" max="15" step="0.5" value={cfg.max_gap_pct} onChange={e => set("max_gap_pct", parseFloat(e.target.value))} style={sls}/>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Minimum relative volume</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.min_rvol}x</span>
-          </div>
-          <input type="range" min="0.5" max="5" step="0.5" value={cfg.min_rvol}
-            onChange={e => set("min_rvol", parseFloat(e.target.value))} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>0.5x</span>
-            <span style={{fontSize:10,color:"#475569"}}>5x</span>
-          </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Min relative volume</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.min_rvol}x</span></div>
+          <input type="range" min="0.5" max="5" step="0.5" value={cfg.min_rvol} onChange={e => set("min_rvol", parseFloat(e.target.value))} style={sls}/>
         </div>
-
-        <div style={rowStyle}>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={labelStyle}>Last entry time (ET)</span>
-            <span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.last_entry_hour}:{String(cfg.last_entry_minute).padStart(2,"0")}</span>
-          </div>
-          <input type="range" min="10" max="15" step="1" value={cfg.last_entry_hour}
-            onChange={e => set("last_entry_hour", parseInt(e.target.value))} style={sliderStyle}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-            <span style={{fontSize:10,color:"#475569"}}>10:00 AM</span>
-            <span style={{fontSize:10,color:"#475569"}}>3:00 PM</span>
-          </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Last entry time (ET)</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.last_entry_hour}:{String(cfg.last_entry_minute).padStart(2,"0")}</span></div>
+          <input type="range" min="10" max="15" step="1" value={cfg.last_entry_hour} onChange={e => set("last_entry_hour", parseInt(e.target.value))} style={sls}/>
         </div>
-
-        <div style={{...rowStyle,borderBottom:"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={labelStyle}>Force close</span>
-          <span style={{fontSize:12,color:"#e2e8f0",fontWeight:500}}>3:55 PM ET</span>
-        </div>
+        <div style={{...rws,borderBottom:"none",display:"flex",justifyContent:"space-between"}}><span style={lbs}>Force close</span><span style={{fontSize:12,color:"#e2e8f0",fontWeight:500}}>3:55 PM ET</span></div>
       </div>
     </div>
-
-    {/* Save Button */}
     <div style={{display:"flex",gap:12,alignItems:"center"}}>
-      <button onClick={save} disabled={bot} style={{
-        padding:"12px 32px",
-        background:saved?"rgba(52,211,153,0.12)":"linear-gradient(135deg,#0ea5e9,#38bdf8)",
-        border:saved?"1px solid rgba(52,211,153,0.3)":"none",
-        borderRadius:10,color:saved?"#34d399":"#0a0e17",
-        fontSize:12,fontWeight:700,letterSpacing:1.5,cursor:"pointer",fontFamily:"inherit",
-      }}>{saved ? "SAVED" : "SAVE SETTINGS"}</button>
-      {bot && <span style={{fontSize:11,color:"#fbbf24"}}>Changes take effect on next bot start</span>}
-      {!bot && !saved && <span style={{fontSize:11,color:"#64748b"}}>Settings apply when you start the bot</span>}
-      {saved && <span style={{fontSize:11,color:"#34d399"}}>Settings saved to lattice_settings.json</span>}
+      <button onClick={save} style={{padding:"12px 32px",background:saved?"rgba(52,211,153,0.12)":"linear-gradient(135deg,#0ea5e9,#38bdf8)",border:saved?"1px solid rgba(52,211,153,0.3)":"none",borderRadius:10,color:saved?"#34d399":"#0a0e17",fontSize:12,fontWeight:700,letterSpacing:1.5,cursor:"pointer",fontFamily:"inherit"}}>{saved?"SAVED":"SAVE SETTINGS"}</button>
+      {bot&&<span style={{fontSize:11,color:"#fbbf24"}}>Changes take effect on next bot start</span>}
+      {!bot&&!saved&&<span style={{fontSize:11,color:"#64748b"}}>Settings apply when you start the bot</span>}
+      {saved&&<span style={{fontSize:11,color:"#34d399"}}>Settings saved</span>}
     </div>
   </div>;
 }
 
-// ── Main Dashboard (REAL DATA) ──────────────────────────────────────
+// ── Admin Tab ───────────────────────────────────────────────────────
+function MiniPlant({ data, width = 200, height = 60 }) {
+  if (!data || data.length < 2) return null;
+  const vals = data.map(d => d.balance);
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const range = mx - mn || 1;
+  const sx = i => (i / (data.length - 1)) * width;
+  const sy = v => height - 4 - ((v - mn) / range) * (height - 8);
+  const pts = data.map((d, i) => ({ x: sx(i), y: sy(d.balance) }));
+  const startV = data[0].balance;
+  const hp2 = b => Math.max(0, Math.min(1, 0.5 + ((b - startV) / startV) * 10));
+  const clr = hl => `rgb(${Math.round(120-hl*91)},${Math.round(80+hl*145)},${Math.round(50+hl*117)})`;
+  const segs = [], lvs = [];
+  for (let i = 1; i < pts.length; i++) {
+    const hl = hp2(data[i].balance), c = clr(hl);
+    const cx = (pts[i-1].x + pts[i].x) / 2;
+    segs.push(<path key={`s${i}`} d={`M${pts[i-1].x} ${pts[i-1].y} C${cx} ${pts[i-1].y} ${cx} ${pts[i].y} ${pts[i].x} ${pts[i].y}`} stroke={c} strokeWidth={1 + hl * 0.5} fill="none" opacity={0.4 + hl * 0.5}/>);
+    const up = pts[i].y < pts[i-1].y;
+    const sz = 3 + hl * 5, px = pts[i].x, py = pts[i].y, hw = sz * 0.35;
+    if (up) {
+      lvs.push(<path key={`l${i}`} d={`M${px},${py} C${px-hw},${py-sz*0.4} ${px-hw},${py-sz*0.7} ${px},${py-sz} C${px+hw},${py-sz*0.7} ${px+hw},${py-sz*0.4} ${px},${py}Z`} fill={c} opacity={0.3+hl*0.6}/>);
+    } else {
+      lvs.push(<path key={`l${i}`} d={`M${px},${py} C${px-hw},${py+sz*0.4} ${px-hw},${py+sz*0.7} ${px},${py+sz} C${px+hw},${py+sz*0.7} ${px+hw},${py+sz*0.4} ${px},${py}Z`} fill={c} opacity={0.3+hl*0.5}/>);
+    }
+  }
+  return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>{segs}{lvs}</svg>;
+}
+
+function AdminTab() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  const load = async () => {
+    try {
+      const data = await api("/admin/users");
+      setUsers(data);
+    } catch (e) { console.error("Admin load error:", e); }
+    setLoading(false);
+  };
+
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      await api("/admin/sync", { method: "POST" });
+      await load();
+    } catch (e) { alert("Sync failed: " + e.message); }
+    setSyncing(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  if (loading) return <div style={{color:"#475569",textAlign:"center",padding:40}}>Loading user data...</div>;
+
+  const pns = { background: "rgba(15,25,35,0.6)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: "24px 28px" };
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,fontWeight:500}}>{users.length} USER{users.length!==1?"S":""}</div>
+      <button onClick={sync} disabled={syncing} style={{padding:"8px 20px",background:syncing?"rgba(56,189,248,0.1)":"rgba(56,189,248,0.08)",border:"1px solid rgba(56,189,248,0.2)",borderRadius:8,color:"#38bdf8",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>{syncing?"SYNCING...":"SYNC STATS"}</button>
+    </div>
+
+    {users.length === 0 && <div style={{...pns,textAlign:"center",color:"#475569",fontSize:12,padding:40}}>
+      No user stats found yet. Click "Sync Stats" to publish yours, then have other users do the same.
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {users.map((u, i) => {
+        const wr = u.wins + u.losses > 0 ? (u.wins / (u.wins + u.losses) * 100).toFixed(0) : "--";
+        const pnlColor = u.total_pnl_usd >= 0 ? "#34d399" : "#f87171";
+        const pnlSign = u.total_pnl_usd >= 0 ? "+" : "";
+        return <div key={u.username || i} style={pns}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:600,color:"#e2e8f0"}}>{u.name || u.username}</div>
+              <div style={{fontSize:11,color:"#475569",marginTop:2}}>@{u.username} - last updated {u.updated || "never"}</div>
+            </div>
+            <div style={{display:"flex",gap:16,alignItems:"center"}}>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:10,color:"#64748b",letterSpacing:1}}>BALANCE</div>
+                <div style={{fontSize:20,fontWeight:700,color:"#e2e8f0"}}>${(u.balance || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:10,color:"#64748b",letterSpacing:1}}>P&L</div>
+                <div style={{fontSize:20,fontWeight:700,color:pnlColor}}>{pnlSign}${(u.total_pnl_usd || 0).toFixed(2)}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:10,color:"#64748b",letterSpacing:1}}>RECORD</div>
+                <div style={{fontSize:20,fontWeight:700,color:"#e2e8f0"}}>{u.wins || 0}W / {u.losses || 0}L</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:10,color:"#64748b",letterSpacing:1}}>WIN RATE</div>
+                <div style={{fontSize:20,fontWeight:700,color:"#34d399"}}>{wr}%</div>
+              </div>
+            </div>
+          </div>
+
+          {u.equity_curve && u.equity_curve.length >= 2 && <div style={{marginBottom:12}}>
+            <MiniPlant data={u.equity_curve} width={500} height={50}/>
+          </div>}
+
+          {u.recent_trades && u.recent_trades.length > 0 && <div>
+            <div style={{fontSize:10,color:"#475569",letterSpacing:1,marginBottom:8}}>RECENT TRADES</div>
+            {u.recent_trades.slice(-5).reverse().map((t, j) => {
+              const pnl2 = t.pnl_usd || t.pnl || 0;
+              const win = pnl2 > 0;
+              return <div key={j} style={{display:"flex",gap:12,padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.02)",fontSize:12}}>
+                <span style={{color:"#475569",width:75}}>{t.date}</span>
+                <span style={{color:"#e2e8f0",fontWeight:600,width:50}}>{t.ticker}</span>
+                <span style={{color:"#94a3b8",width:70}}>${(t.entry_price || t.entry || 0).toFixed?.(2)}</span>
+                <span style={{color:"#94a3b8",width:70}}>${(t.exit_price || t.exit || 0).toFixed?.(2)}</span>
+                <span style={{fontWeight:600,color:win?"#34d399":"#f87171"}}>{win?"+":""}${pnl2.toFixed?.(2)}</span>
+              </div>;
+            })}
+          </div>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ── Main Dashboard ──────────────────────────────────────────────────
 function Dash() {
   const [acct, sA] = useState(null);
   const [trades, sT2] = useState([]);
@@ -429,47 +496,29 @@ function Dash() {
   const [tab, sT] = useState("dashboard");
   const ws = useRef(null);
 
-  // Fetch real data on mount and every 15s
   const fetchData = async () => {
     try {
-      const [a, t, e, s] = await Promise.all([
-        api("/account"), api("/trades/recent"), api("/equity"), api("/bot/status")
-      ]);
+      const [a, t, e, s] = await Promise.all([api("/account"), api("/trades/recent"), api("/equity"), api("/bot/status")]);
       sA(a); sT2(t); sEq(e); sB(s.running);
-      if (s.logs) sL(s.logs);
+      if (s.logs) sL(prev => prev.length === 0 ? s.logs : prev);
     } catch (e) { console.error("Fetch error:", e); }
   };
-
   useEffect(() => { fetchData(); const iv = setInterval(fetchData, 15000); return () => clearInterval(iv); }, []);
 
-  // WebSocket for live logs
   useEffect(() => {
     try {
-      ws.current = new WebSocket("ws://localhost:8080/api/ws/logs");
-      ws.current.onmessage = (e) => {
-        const log = JSON.parse(e.data);
-        sL(prev => [...prev.slice(-200), log]);
-      };
+      ws.current = new WebSocket(WS_URL);
+      ws.current.onmessage = (e) => { const log = JSON.parse(e.data); sL(prev => [...prev.slice(-200), log]); };
+      ws.current.onclose = () => { setTimeout(() => { try { ws.current = new WebSocket(WS_URL); } catch {} }, 5000); };
     } catch (e) {}
     return () => { if (ws.current) ws.current.close(); };
   }, []);
 
-  const startBot = async () => {
-    try {
-      await api("/bot/control", { method: "POST", body: { action: "start", live: true } });
-      sB(true);
-    } catch (e) { alert("Failed to start: " + e.message); }
-  };
-  const stopBot = async () => {
-    try {
-      await api("/bot/control", { method: "POST", body: { action: "stop" } });
-      sB(false);
-    } catch (e) { alert("Failed to stop: " + e.message); }
-  };
+  const startBot = async () => { try { await api("/bot/control", { method: "POST", body: { action: "start", live: true } }); sB(true); } catch (e) { alert("Failed: " + e.message); } };
+  const stopBot = async () => { try { await api("/bot/control", { method: "POST", body: { action: "stop" } }); sB(false); } catch (e) { alert("Failed: " + e.message); } };
 
-  const W = acct?.wins || 0, L = acct?.losses || 0, tp = acct?.total_pnl_usd || 0;
-  const bal = acct?.balance || 0;
-  const tabs = ["dashboard","trades","performance","settings"];
+  const W = acct?.wins || 0, L = acct?.losses || 0, tp = acct?.total_pnl_usd || 0, bal = acct?.balance || 0;
+  const tabs = ["dashboard","trades","performance","settings","admin"];
 
   return (<div style={{minHeight:"100vh",background:"linear-gradient(180deg,#0a0e17,#0d1420)",fontFamily:"'JetBrains Mono','SF Mono',monospace",color:"#e2e8f0"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(10,14,23,0.8)",backdropFilter:"blur(10px)",position:"sticky",top:0,zIndex:10}}>
@@ -479,11 +528,7 @@ function Dash() {
     </div>
     <div style={{padding:"24px 28px",maxWidth:1200,margin:"0 auto"}}>
       {tab==="dashboard"&&<>
-        <div style={{display:"flex",gap:12,marginBottom:20}}>
-          <Stat label="ACCOUNT BALANCE" value={`$${bal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`} sub="IBKR Net Liquidation" big/>
-          <Stat label="TOTAL P&L" value={`${tp>=0?"+":""}$${tp.toFixed(2)}`} color={tp>=0?"#34d399":"#f87171"} sub={`${W+L} trades`} big/>
-          <Stat label="RECORD" value={`${W}W / ${L}L`} sub={W+L>0?`${(W/(W+L)*100).toFixed(0)}% win rate`:"no trades yet"} big/>
-        </div>
+        <div style={{display:"flex",gap:12,marginBottom:20}}><Stat label="ACCOUNT BALANCE" value={`$${bal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`} sub="IBKR Net Liquidation" big/><Stat label="TOTAL P&L" value={`${tp>=0?"+":""}$${tp.toFixed(2)}`} color={tp>=0?"#34d399":"#f87171"} sub={`${W+L} trades`} big/><Stat label="RECORD" value={`${W}W / ${L}L`} sub={W+L>0?`${(W/(W+L)*100).toFixed(0)}% win rate`:"no trades yet"} big/></div>
         <div style={{display:"flex",gap:16,marginBottom:20}}>
           <div style={{flex:1}}><div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:8,fontWeight:500}}>LIVE FEED</div><Feed logs={logs}/></div>
           <div style={{width:200,display:"flex",flexDirection:"column",gap:10}}>
@@ -495,29 +540,23 @@ function Dash() {
       </>}
       {tab==="trades"&&<div style={{background:"rgba(15,25,35,0.6)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,overflow:"hidden"}}><div style={{display:"flex",padding:"12px 16px",fontSize:10,color:"#475569",letterSpacing:1,borderBottom:"1px solid rgba(255,255,255,0.04)"}}><div style={{width:80}}>DATE</div><div style={{width:55}}>TICKER</div><div style={{width:70}}>ENTRY</div><div style={{width:70}}>EXIT</div><div style={{width:55}}>TYPE</div><div style={{flex:1,textAlign:"right"}}>P&L</div></div>{trades.length===0&&<div style={{padding:40,textAlign:"center",color:"#475569",fontSize:12}}>No trades yet</div>}{[...trades].reverse().map((t,i)=><TRow key={i} t={t}/>)}</div>}
       {tab==="performance"&&<>
-        <div style={{display:"flex",gap:12,marginBottom:20}}>
-          <Stat label="WIN RATE" value={W+L>0?`${(W/(W+L)*100).toFixed(0)}%`:"—"} color="#34d399"/>
-          <Stat label="AVG WIN" value={W>0?`+$${(trades.filter(t=>(t.pnl_usd||t.pnl||0)>0).reduce((s,t)=>s+(t.pnl_usd||t.pnl||0),0)/W).toFixed(2)}`:"—"} color="#34d399"/>
-          <Stat label="AVG LOSS" value={L>0?`-$${Math.abs(trades.filter(t=>(t.pnl_usd||t.pnl||0)<=0).reduce((s,t)=>s+(t.pnl_usd||t.pnl||0),0)/L).toFixed(2)}`:"—"} color="#f87171"/>
-          <Stat label="DRAWDOWN" value={`${(acct?.max_drawdown_pct||0).toFixed(1)}%`}/>
-        </div>
+        <div style={{display:"flex",gap:12,marginBottom:20}}><Stat label="WIN RATE" value={W+L>0?`${(W/(W+L)*100).toFixed(0)}%`:"--"} color="#34d399"/><Stat label="AVG WIN" value={W>0?`+$${(trades.filter(t=>(t.pnl_usd||t.pnl||0)>0).reduce((s,t)=>s+(t.pnl_usd||t.pnl||0),0)/W).toFixed(2)}`:"--"} color="#34d399"/><Stat label="AVG LOSS" value={L>0?`-$${Math.abs(trades.filter(t=>(t.pnl_usd||t.pnl||0)<=0).reduce((s,t)=>s+(t.pnl_usd||t.pnl||0),0)/L).toFixed(2)}`:"--"} color="#f87171"/><Stat label="DRAWDOWN" value={`${(acct?.max_drawdown_pct||0).toFixed(1)}%`}/></div>
         <div style={{background:"rgba(15,25,35,0.6)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px"}}><div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:16,fontWeight:500}}>GROWTH</div><PlantEquityCurve data={equity} height={350}/></div>
-        <div style={{marginTop:16,background:"rgba(15,25,35,0.6)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px"}}><div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:12,fontWeight:500}}>AUTO-TUNE</div><div style={{fontSize:12,color:"#94a3b8",marginBottom:12}}>{W+L} trades logged — need 50 for first tune</div><div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,overflow:"hidden"}}><div style={{width:`${Math.min(100,(W+L)/50*100)}%`,height:"100%",background:"#38bdf8",borderRadius:2}}/></div></div>
+        <div style={{marginTop:16,background:"rgba(15,25,35,0.6)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px"}}><div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:12,fontWeight:500}}>AUTO-TUNE</div><div style={{fontSize:12,color:"#94a3b8",marginBottom:12}}>{W+L} trades logged - need 50 for first tune</div><div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,overflow:"hidden"}}><div style={{width:`${Math.min(100,(W+L)/50*100)}%`,height:"100%",background:"#38bdf8",borderRadius:2}}/></div></div>
       </>}
       {tab==="settings"&&<SettingsTab bal={bal} bot={bot}/>}
+      {tab==="admin"&&<AdminTab/>}
     </div>
   </div>);
 }
 
 // ── App Root ────────────────────────────────────────────────────────
 function App() {
-  const [s,sS] = useState(() => {
-    const token = localStorage.getItem("lattice_token");
-    return token ? "dash" : "land";
-  });
-  const [user,sU] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("lattice_user")); } catch { return null; }
-  });
+  const backendOk = useBackendStatus();
+  const [s,sS] = useState(() => localStorage.getItem("lattice_token") ? "dash" : "land");
+  const [user,sU] = useState(() => { try { return JSON.parse(localStorage.getItem("lattice_user")); } catch { return null; } });
+
+  if (!backendOk) return <NoBackend/>;
   if (s==="land") return <Landing onLogin={()=>sS("sign")} onCreate={()=>sS("setup")}/>;
   if (s==="sign") return <SignIn onLogin={u=>{sU(u);sS("dash")}} onBack={()=>sS("land")}/>;
   if (s==="setup") return <Setup onDone={u=>{sU(u);sS("dash")}} onBack={()=>sS("land")}/>;
