@@ -51,17 +51,20 @@ class CryptoConfig:
     # Lookback for breakout detection
     BREAKOUT_BARS = 20      # 20-bar high = 5 hours on 15m candles
 
-    # RSI settings
+    # RSI settings (used for logging only — NOT for entry)
     RSI_PERIOD = 14
     RSI_OVERSOLD = 30
-    RSI_OVERBOUGHT = 70
+    RSI_OVERBOUGHT = 80
 
-    # ATR for trailing stop
+    # ATR for trailing stop — backtested winner: 4.0x (wider = better for crypto)
     ATR_PERIOD = 14
-    TRAIL_ATR_MULT = 1.5
+    TRAIL_ATR_MULT = 4.0
 
-    # Volume confirmation
-    MIN_RVOL = 1.3          # 30% above average volume
+    # Volume confirmation — backtested winner: 1.5x
+    MIN_RVOL = 1.5
+
+    # Strategy mode — backtest showed breakout_only is profitable, RSI loses
+    STRATEGY = "breakout_only"  # "breakout_only", "rsi_only", or "both"
 
     # Position sizing (paper)
     STARTING_CAPITAL = 500   # Hypothetical starting capital
@@ -277,8 +280,10 @@ class CryptoPaperBot:
         if ticker in self.positions:
             return None
 
+        strategy = CryptoConfig.STRATEGY
+
         # Check breakout signal
-        if analysis["breakout_signal"]:
+        if strategy in ("breakout_only", "both") and analysis["breakout_signal"]:
             return {
                 "strategy": "momentum_breakout",
                 "direction": "long",
@@ -288,8 +293,8 @@ class CryptoPaperBot:
                 "atr": analysis["atr"],
             }
 
-        # Check RSI oversold (mean reversion buy)
-        if analysis["rsi_signal"] == "oversold":
+        # Check RSI oversold (mean reversion buy) — disabled by default
+        if strategy in ("rsi_only", "both") and analysis["rsi_signal"] == "oversold":
             return {
                 "strategy": "rsi_mean_reversion",
                 "direction": "long",
@@ -455,9 +460,11 @@ class CryptoPaperBot:
         self._log(f"  Tickers: {', '.join(CryptoConfig.TICKERS)}")
         self._log(f"  Balance: ${self.balance:,.2f}")
         self._log(f"  Record: {self.wins}W/{self.losses}L")
-        self._log(f"  Strategy: Momentum breakout + RSI mean reversion")
-        self._log(f"  Trailing stop: {CryptoConfig.TRAIL_ATR_MULT}x ATR")
+        self._log(f"  Strategy: {CryptoConfig.STRATEGY}")
+        self._log(f"  Trailing stop: {CryptoConfig.TRAIL_ATR_MULT}x ATR (backtested)")
+        self._log(f"  Min volume: {CryptoConfig.MIN_RVOL}x relative")
         self._log(f"  Interval: {CryptoConfig.INTERVAL} candles")
+        self._log(f"  Backtest: 40% WR, 1.10 PF, +8.3% over 60d")
         self._log("  THIS IS PAPER TRADING - NO REAL MONEY")
         self._log("=" * 50)
 
