@@ -475,6 +475,33 @@ def run_pre_market_scan():
     else:
         logger.info(f"  No unusual options activity detected")
 
+    # ── Social sentiment (silent — logged only, not scored) ──────────
+    # StockTwits message count and bullish/bearish ratio
+    # This data is collected for the auto-tuner to evaluate later
+    cdf["st_messages"] = 0
+    cdf["st_bullish"] = 0
+    cdf["st_bearish"] = 0
+    cdf["st_bull_ratio"] = 0.5
+    cdf["st_watchers"] = 0
+
+    try:
+        from live.sentiment import get_batch_sentiment
+        tickers_to_check = cdf["ticker"].tolist()[:10]  # Cap at 10 to stay fast
+        st_data = get_batch_sentiment(tickers_to_check, delay=0.3)
+
+        for idx, row in cdf.iterrows():
+            ticker = row["ticker"]
+            if ticker in st_data:
+                for key in ["st_messages", "st_bullish", "st_bearish",
+                            "st_bull_ratio", "st_watchers"]:
+                    if key in st_data[ticker]:
+                        cdf.at[idx, key] = st_data[ticker][key]
+
+        has_data = len([t for t in tickers_to_check if t in st_data])
+        logger.info(f"  Social sentiment: {has_data}/{len(tickers_to_check)} tickers")
+    except Exception as e:
+        logger.debug(f"  Social sentiment skipped: {e}")
+
     # ── Score candidates ─────────────────────────────────────────────
     # Research-backed scoring (advanced_selection_backtest.py):
     #   - High SI (>10%): 88% win, $37.48/trade → big bonus
