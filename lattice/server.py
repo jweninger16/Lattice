@@ -438,6 +438,37 @@ async def admin_sync():
         return {"status": "error", "detail": str(e)}
 
 
+# ── Crypto Paper Trading ─────────────────────────────────────────────
+@app.get("/api/crypto/status")
+async def crypto_status():
+    """Get crypto paper bot status."""
+    try:
+        from live.crypto_paper import get_bot
+        return get_bot().get_status()
+    except Exception as e:
+        return {"running": False, "error": str(e)}
+
+
+@app.post("/api/crypto/start")
+async def crypto_start():
+    """Start the crypto paper bot."""
+    try:
+        from live.crypto_paper import start_bot
+        return start_bot()
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.post("/api/crypto/stop")
+async def crypto_stop():
+    """Stop the crypto paper bot."""
+    try:
+        from live.crypto_paper import stop_bot
+        return stop_bot()
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
 @app.post("/api/bot/control")
 async def bot_control(req: BotControlRequest):
     if req.action == "start":

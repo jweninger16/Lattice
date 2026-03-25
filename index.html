@@ -486,6 +486,147 @@ function AdminTab() {
   </div>;
 }
 
+// ── Beta Testing Tab (Crypto Paper) ─────────────────────────────────
+function BetaTab() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
+
+  const load = async () => {
+    try {
+      const data = await api("/crypto/status");
+      setStatus(data);
+    } catch (e) { console.error("Crypto status error:", e); }
+    setLoading(false);
+  };
+
+  const toggle = async () => {
+    setStarting(true);
+    try {
+      if (status && status.running) {
+        await api("/crypto/stop", { method: "POST" });
+      } else {
+        await api("/crypto/start", { method: "POST" });
+      }
+      await new Promise(r => setTimeout(r, 1000));
+      await load();
+    } catch (e) { alert("Failed: " + e.message); }
+    setStarting(false);
+  };
+
+  useEffect(() => { load(); const iv = setInterval(load, 30000); return () => clearInterval(iv); }, []);
+
+  if (loading) return <div style={{color:"#475569",textAlign:"center",padding:40}}>Loading...</div>;
+
+  const s = status || {};
+  const running = s.running || false;
+  const bal = s.balance || 0;
+  const startCap = s.starting_capital || 500;
+  const pnl = s.total_pnl || 0;
+  const W = s.wins || 0, L = s.losses || 0;
+  const trades = s.trade_history || [];
+  const logs = s.logs || [];
+  const positions = s.positions || {};
+  const posKeys = Object.keys(positions);
+
+  const pns = { background: "rgba(15,25,35,0.6)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 12, padding: "24px 28px" };
+
+  return <div>
+    {/* Header banner */}
+    <div style={{background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:12,padding:"16px 24px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:14,fontWeight:600,color:"#fbbf24",marginBottom:4}}>BETA TESTING - Crypto Paper Trader</div>
+        <div style={{fontSize:11,color:"#94a3b8"}}>No real money. Monitoring BTC + ETH for momentum breakouts and RSI mean reversion. Data collected for strategy evaluation.</div>
+      </div>
+      <button onClick={toggle} disabled={starting} style={{
+        padding:"12px 24px",flexShrink:0,
+        background:running?"rgba(248,113,113,0.12)":"linear-gradient(135deg,#f59e0b,#fbbf24)",
+        border:running?"1px solid rgba(248,113,113,0.3)":"none",
+        borderRadius:10,color:running?"#f87171":"#0a0e17",
+        fontSize:12,fontWeight:700,letterSpacing:1.5,cursor:"pointer",fontFamily:"inherit",
+      }}>{starting?"...":(running?"STOP BOT":"START PAPER TRADING")}</button>
+    </div>
+
+    {/* Stats */}
+    <div style={{display:"flex",gap:12,marginBottom:20}}>
+      <Stat label="PAPER BALANCE" value={`$${bal.toFixed(2)}`} sub={`Started at $${startCap}`} big/>
+      <Stat label="PAPER P&L" value={`${pnl>=0?"+":""}$${pnl.toFixed(2)}`} color={pnl>=0?"#34d399":"#f87171"} sub={`${pnl!==0?((pnl/startCap)*100).toFixed(1)+"%":"0%"}`} big/>
+      <Stat label="RECORD" value={`${W}W / ${L}L`} sub={W+L>0?`${(W/(W+L)*100).toFixed(0)}% win rate`:"no trades yet"} big/>
+    </div>
+
+    {/* Open positions */}
+    {posKeys.length > 0 && <div style={{...pns,marginBottom:20}}>
+      <div style={{fontSize:10,color:"#fbbf24",letterSpacing:1.5,marginBottom:12,fontWeight:500}}>OPEN PAPER POSITIONS</div>
+      {posKeys.map(ticker => {
+        const p = positions[ticker];
+        return <div key={ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+          <div>
+            <span style={{fontSize:16,fontWeight:600,color:"#e2e8f0"}}>{ticker}</span>
+            <span style={{fontSize:11,color:"#475569",marginLeft:12}}>{p.strategy}</span>
+          </div>
+          <div style={{display:"flex",gap:24}}>
+            <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#475569"}}>ENTRY</div><div style={{fontSize:14,fontWeight:600,color:"#e2e8f0"}}>${p.entry_price?.toLocaleString()}</div></div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#475569"}}>TRAIL STOP</div><div style={{fontSize:14,fontWeight:600,color:"#fbbf24"}}>${p.trail_stop?.toLocaleString()}</div></div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:10,color:"#475569"}}>RSI</div><div style={{fontSize:14,fontWeight:600,color:"#94a3b8"}}>{p.rsi_at_entry}</div></div>
+          </div>
+        </div>;
+      })}
+    </div>}
+
+    <div style={{display:"flex",gap:16,marginBottom:20}}>
+      {/* Feed */}
+      <div style={{flex:1}}>
+        <div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:8,fontWeight:500}}>LIVE FEED</div>
+        <div style={{background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 16px",height:220,overflowY:"auto",fontSize:12,lineHeight:1.7}}>
+          {logs.length===0&&<div style={{color:"#475569",padding:20,textAlign:"center"}}>{running?"Monitoring...":"Bot idle - click Start to begin"}</div>}
+          {logs.map((l,i) => <div key={i} style={{display:"flex",gap:12}}>
+            <span style={{color:"#475569",flexShrink:0}}>{l.time}</span>
+            <span style={{color:l.msg&&l.msg.includes("ENTRY")?"#fbbf24":l.msg&&l.msg.includes("EXIT")?(l.msg.includes("+")?  "#34d399":"#f87171"):"#94a3b8"}}>{l.msg}</span>
+          </div>)}
+        </div>
+      </div>
+
+      {/* Strategy info */}
+      <div style={{width:280}}>
+        <div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:8,fontWeight:500}}>STRATEGY</div>
+        <div style={pns}>
+          {[
+            ["Tickers", "BTC-USD, ETH-USD"],
+            ["Interval", "15-min candles"],
+            ["Entry 1", "20-bar high breakout"],
+            ["Entry 2", "RSI < 30 (oversold)"],
+            ["Exit", "1.5x ATR trailing stop"],
+            ["Exit 2", "RSI > 70 (overbought)"],
+            ["Time exit", "24 hours max hold"],
+            ["Sizing", "50% per trade"],
+          ].map(([k,v]) => <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+            <span style={{color:"#94a3b8",fontSize:11}}>{k}</span>
+            <span style={{color:"#e2e8f0",fontSize:11,fontWeight:500}}>{v}</span>
+          </div>)}
+        </div>
+      </div>
+    </div>
+
+    {/* Trade history */}
+    <div style={pns}>
+      <div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:12,fontWeight:500}}>PAPER TRADE HISTORY</div>
+      {trades.length === 0 && <div style={{color:"#475569",fontSize:12,textAlign:"center",padding:20}}>No paper trades yet</div>}
+      {[...trades].reverse().map((t,i) => {
+        const pnl2 = t.pnl_usd || 0;
+        const win = pnl2 > 0;
+        return <div key={i} style={{display:"flex",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)",fontSize:12,gap:8}}>
+          <span style={{color:"#475569",width:75}}>{t.date}</span>
+          <span style={{color:"#fbbf24",fontWeight:600,width:70}}>{t.ticker}</span>
+          <span style={{color:"#64748b",width:90,fontSize:10}}>{t.strategy?.replace("_"," ")}</span>
+          <span style={{color:t.exit_reason==="trail"?"#34d399":"#94a3b8",width:70,fontSize:10}}>{t.exit_reason}</span>
+          <span style={{flex:1,textAlign:"right",fontWeight:600,color:win?"#34d399":"#f87171"}}>{win?"+":""}${pnl2.toFixed?.(2)} ({t.pnl_pct?.toFixed?.(1)}%)</span>
+          <span style={{color:"#475569",width:80,textAlign:"right",fontSize:11}}>${t.balance_after?.toFixed?.(2)}</span>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
 // ── Main Dashboard ──────────────────────────────────────────────────
 function Dash() {
   const [acct, sA] = useState(null);
@@ -518,7 +659,7 @@ function Dash() {
   const stopBot = async () => { try { await api("/bot/control", { method: "POST", body: { action: "stop" } }); sB(false); } catch (e) { alert("Failed: " + e.message); } };
 
   const W = acct?.wins || 0, L = acct?.losses || 0, tp = acct?.total_pnl_usd || 0, bal = acct?.balance || 0;
-  const tabs = ["dashboard","trades","performance","settings","admin"];
+  const tabs = ["dashboard","trades","performance","settings","beta","admin"];
 
   return (<div style={{minHeight:"100vh",background:"linear-gradient(180deg,#0a0e17,#0d1420)",fontFamily:"'JetBrains Mono','SF Mono',monospace",color:"#e2e8f0"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 28px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(10,14,23,0.8)",backdropFilter:"blur(10px)",position:"sticky",top:0,zIndex:10}}>
@@ -545,6 +686,7 @@ function Dash() {
         <div style={{marginTop:16,background:"rgba(15,25,35,0.6)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px"}}><div style={{fontSize:10,color:"#64748b",letterSpacing:1.5,marginBottom:12,fontWeight:500}}>AUTO-TUNE</div><div style={{fontSize:12,color:"#94a3b8",marginBottom:12}}>{W+L} trades logged - need 50 for first tune</div><div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,overflow:"hidden"}}><div style={{width:`${Math.min(100,(W+L)/50*100)}%`,height:"100%",background:"#38bdf8",borderRadius:2}}/></div></div>
       </>}
       {tab==="settings"&&<SettingsTab bal={bal} bot={bot}/>}
+      {tab==="beta"&&<BetaTab/>}
       {tab==="admin"&&<AdminTab/>}
     </div>
   </div>);
