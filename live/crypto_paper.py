@@ -247,12 +247,21 @@ class CryptoPaperBot:
         breakout = current_high > lookback_high
 
         # Relative volume
+        # Note: yfinance often returns 0 volume for the latest crypto candle
+        # When volume is unavailable, we trust the breakout signal alone
         avg_vol = float(volume.iloc[-20:].mean()) if len(volume) >= 20 else float(volume.mean())
         current_vol = float(volume.iloc[-1])
-        rvol = current_vol / avg_vol if avg_vol > 0 else 1.0
+        if avg_vol > 0 and current_vol > 0:
+            rvol = current_vol / avg_vol
+        else:
+            rvol = 0.0
 
         # Volume confirmation for breakout
-        breakout_signal = breakout and rvol >= CryptoConfig.MIN_RVOL
+        # If volume data is missing (rvol=0), still allow breakout on price alone
+        if rvol > 0:
+            breakout_signal = breakout and rvol >= CryptoConfig.MIN_RVOL
+        else:
+            breakout_signal = breakout  # No volume data, trust price breakout
 
         # RSI signals
         rsi_signal = None
