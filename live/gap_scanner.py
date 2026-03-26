@@ -28,6 +28,7 @@ Usage:
 import sys
 import asyncio
 import time
+import json
 import numpy as np
 import pandas as pd
 import yfinance as yf
