@@ -601,6 +601,7 @@ class GapScannerBot:
         self.position = None
         self.daily_pnl = 0
         self.today = None
+        self._cash_alert_sent = False
 
     # ── Account tracking (persists across sessions) ───────────────────
 
@@ -1064,6 +1065,14 @@ class GapScannerBot:
                             clientId=ScannerConfig.CLIENT_ID)
             logger.info(f"Connected to IBKR ({mode}) on port {self.port}")
 
+            # Request live market data; fall back to delayed if unavailable
+            try:
+                self.ib.reqMarketDataType(1)  # 1=Live
+                logger.info("  Market data type: Live")
+            except Exception:
+                self.ib.reqMarketDataType(3)  # 3=Delayed (free)
+                logger.info("  Market data type: Delayed (fallback)")
+
             # Sync account balance from IBKR (source of truth)
             self.sync_account_from_ibkr()
             return True
@@ -1096,6 +1105,35 @@ class GapScannerBot:
                     break
         except Exception as e:
             logger.warning(f"  Could not sync IBKR balance: {e}")
+
+    def get_settled_cash(self):
+        """
+        Gets settled cash from IBKR.
+        On a cash account, you can only trade with settled funds.
+        Returns settled cash amount, or total balance as fallback.
+        """
+        try:
+            summary = self.ib.accountSummary()
+            settled = None
+            total = None
+            for item in summary:
+                if item.currency != "USD":
+                    continue
+                if item.tag == "SettledCash":
+                    settled = float(item.value)
+                elif item.tag == "TotalCashValue":
+                    total = float(item.value)
+                elif item.tag == "NetLiquidation" and total is None:
+                    total = float(item.value)
+
+            if settled is not None:
+                return settled
+            if total is not None:
+                return total
+            return self.account["balance"]
+        except Exception as e:
+            logger.warning(f"Could not get settled cash: {e}")
+            return self.account["balance"]
 
     def get_ibkr_fill_price(self, ticker, side="SLD"):
         """
@@ -1142,6 +1180,7 @@ class GapScannerBot:
         self.position = None
         self.daily_pnl = 0
         self.today = date.today()
+        self._cash_alert_sent = False
 
         # Intraday tracking (VWAP, pre-market high, float rotation)
         self.pm_high = None
@@ -1174,7 +1213,8 @@ class GapScannerBot:
     def get_current_price(self, contract):
         """Gets current price via snapshot."""
         try:
-            self.ib.reqMktData(contract, "", False, False)
+            # snapshot=True uses the Snapshot bundle subscription
+            self.ib.reqMktData(contract, "", True, False)
             self.ib.sleep(2)
             ticker_data = self.ib.ticker(contract)
             price = ticker_data.last
@@ -1204,6 +1244,31 @@ class GapScannerBot:
         data = self.target_data
         ticker = self.target_ticker
         pos_size = self.get_position_size()
+
+        # ── Check settled cash before placing any orders ──────────
+        if not self.dry_run:
+            settled = self.get_settled_cash()
+            if settled < pos_size:
+                logger.warning(
+                    f"Not enough settled cash: ${settled:,.2f} available, "
+                    f"${pos_size:,.2f} needed. Skipping trade."
+                )
+                # Send ONE Discord alert per day, then stop trying
+                if not self._cash_alert_sent:
+                    try:
+                        from live.alerts import send_discord
+                        send_discord(
+                            f"Gap Scanner — Skipping {ticker}: "
+                            f"only ${settled:,.2f} settled cash "
+                            f"(need ${pos_size:,.2f}). "
+                            f"Cash settles tomorrow."
+                        )
+                    except Exception:
+                        pass
+                    self._cash_alert_sent = True
+                self.trade_taken = True  # Stop trying to trade
+                return False
+
         qty = max(1, int(pos_size / data["open"]))
 
         entry_price = data["open"]

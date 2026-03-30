@@ -1,15 +1,15 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-03-30 08:56:40",
-  "balance": 1962.36,
+  "updated": "2026-03-30 10:16:27",
+  "balance": 1952.18,
   "starting_capital": 2000.0,
-  "wins": 3,
-  "losses": 2,
-  "total_trades": 6,
-  "total_pnl_usd": -37.6400000000001,
+  "wins": 4,
+  "losses": 4,
+  "total_trades": 9,
+  "total_pnl_usd": -47.819999999999936,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -2.1432774492106086,
+  "max_drawdown_pct": -2.8055092901951784,
   "recent_trades": [
     {
       "date": "2026-03-20",
@@ -82,6 +82,42 @@
       "pnl_usd": 1.15,
       "reason": "trail",
       "balance_after": 1962.36
+    },
+    {
+      "date": "2026-03-30",
+      "ticker": "LYB",
+      "direction": "long",
+      "entry": 83.47,
+      "exit": 83.07,
+      "qty": 7,
+      "pnl_pct": -0.48,
+      "pnl_usd": -2.79,
+      "reason": "trail",
+      "balance_after": 1957.57
+    },
+    {
+      "date": "2026-03-30",
+      "ticker": "ALB",
+      "direction": "long",
+      "entry": 180.96,
+      "exit": 178.83,
+      "qty": 3,
+      "pnl_pct": -1.18,
+      "pnl_usd": -6.39,
+      "reason": "stop",
+      "balance_after": 1949.08
+    },
+    {
+      "date": "2026-03-30",
+      "ticker": "DOW",
+      "direction": "long",
+      "entry": 41.27,
+      "exit": 41.63,
+      "qty": 14,
+      "pnl_pct": 0.88,
+      "pnl_usd": 5.11,
+      "reason": "trail",
+      "balance_after": 1952.18
     }
   ],
   "equity_curve": [
@@ -112,6 +148,18 @@
     {
       "date": "2026-03-25",
       "balance": 1962.36
+    },
+    {
+      "date": "2026-03-30",
+      "balance": 1957.57
+    },
+    {
+      "date": "2026-03-30",
+      "balance": 1949.08
+    },
+    {
+      "date": "2026-03-30",
+      "balance": 1952.18
     }
   ]
 }
