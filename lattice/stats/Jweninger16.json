@@ -1,15 +1,15 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-03-31 08:36:32",
-  "balance": 1952.18,
+  "updated": "2026-03-31 09:12:36",
+  "balance": 1948.32,
   "starting_capital": 2000.0,
   "wins": 4,
-  "losses": 4,
-  "total_trades": 9,
-  "total_pnl_usd": -47.819999999999936,
+  "losses": 5,
+  "total_trades": 10,
+  "total_pnl_usd": -51.680000000000064,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -2.8055092901951784,
+  "max_drawdown_pct": -2.843408100372006,
   "recent_trades": [
     {
       "date": "2026-03-20",
@@ -118,6 +118,18 @@
       "pnl_usd": 5.11,
       "reason": "trail",
       "balance_after": 1952.18
+    },
+    {
+      "date": "2026-03-31",
+      "ticker": "TSLA",
+      "direction": "long",
+      "entry": 363.95,
+      "exit": 362.08,
+      "qty": 1,
+      "pnl_pct": -0.51,
+      "pnl_usd": -1.87,
+      "reason": "trail",
+      "balance_after": 1948.32
     }
   ],
   "equity_curve": [
@@ -160,6 +172,10 @@
     {
       "date": "2026-03-30",
       "balance": 1952.18
+    },
+    {
+      "date": "2026-03-31",
+      "balance": 1948.32
     }
   ]
 }
