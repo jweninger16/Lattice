@@ -106,6 +106,10 @@ class ScannerConfig:
     PM_HIGH_BUFFER_PCT = 0.10    # Buy 0.10% above pre-market high
     VWAP_STOP_BUFFER_PCT = 0.20  # Stop 0.20% below VWAP (much tighter)
 
+    # Relative strength filter (vs SPY)
+    RS_FILTER_ENABLED = True     # Check if stock is outperforming SPY before entry
+    RS_MIN_THRESHOLD = -0.5      # Skip entry if RS < this (underperforming by 0.5%+)
+
     # Position sizing — dynamic, grows/shrinks with account
     SIZING_MODE = "dynamic"  # "fixed" = flat dollar amount, "dynamic" = % of account
     POSITION_SIZE_USD = 500  # Used when SIZING_MODE = "fixed"
@@ -162,6 +166,10 @@ class ScannerConfig:
             if "scan_time_hour" in s and "scan_time_minute" in s:
                 cls.SCAN_TIME = dtime(s["scan_time_hour"],
                                       s["scan_time_minute"])
+            if "rs_filter_enabled" in s:
+                cls.RS_FILTER_ENABLED = s["rs_filter_enabled"]
+            if "rs_min_threshold" in s:
+                cls.RS_MIN_THRESHOLD = s["rs_min_threshold"]
             logger.info(f"  Settings loaded from {cls.SETTINGS_FILE}")
         except Exception as e:
             logger.warning(f"  Could not load settings: {e}")
@@ -991,6 +999,58 @@ class GapScannerBot:
             self.float_rotation = self.intraday_volume / float_shares
         return self.float_rotation
 
+    def get_spy_relative_strength(self, stock_price, stock_open):
+        """
+        Compare stock's % move since open to SPY's % move since open.
+        
+        Returns:
+            rs_value: stock_change - spy_change (positive = outperforming)
+            None if data unavailable
+        
+        Example: stock +1.5% vs SPY +0.3% → rs = +1.2% (outperforming)
+                 stock +0.5% vs SPY +1.0% → rs = -0.5% (underperforming)
+        """
+        if self.dry_run:
+            return None
+            
+        try:
+            # Get or create SPY contract
+            if self._spy_contract is None:
+                self._spy_contract = Stock("SPY", "SMART", "USD")
+                self.ib.qualifyContracts(self._spy_contract)
+            
+            # Get SPY's open price (cache it for the day)
+            if self._spy_open is None:
+                spy_data = yf.download("SPY", period="1d", interval="1m",
+                                       progress=False, auto_adjust=True)
+                if spy_data is not None and not spy_data.empty:
+                    if isinstance(spy_data.columns, pd.MultiIndex):
+                        spy_data.columns = spy_data.columns.get_level_values(0)
+                    self._spy_open = float(spy_data["Open"].iloc[0])
+                    logger.info(f"  SPY open: ${self._spy_open:.2f}")
+            
+            if self._spy_open is None or self._spy_open <= 0:
+                return None
+            
+            # Get SPY current price
+            spy_price = self.get_current_price(self._spy_contract)
+            if spy_price is None:
+                return None
+            
+            # Calculate relative strength
+            stock_change = ((stock_price - stock_open) / stock_open) * 100
+            spy_change = ((spy_price - self._spy_open) / self._spy_open) * 100
+            rs = round(stock_change - spy_change, 2)
+            
+            logger.info(f"  Relative strength vs SPY: {rs:+.2f}% "
+                        f"(stock {stock_change:+.2f}% vs SPY {spy_change:+.2f}%)")
+            
+            return rs
+            
+        except Exception as e:
+            logger.debug(f"  RS calculation failed: {e}")
+            return None
+
     def check_entry_signal(self, contract):
         """
         Monitors price for entry signals:
@@ -1019,6 +1079,9 @@ class GapScannerBot:
 
         vwap = self.vwap
 
+        signal = None
+        signal_price = None
+
         # ── Signal A: VWAP Pullback ──────────────────────────────────
         vwap_zone = vwap * 1.003  # Within 0.3% of VWAP
         if vwap < price <= vwap_zone:
@@ -1031,27 +1094,49 @@ class GapScannerBot:
         if self.bars_above_vwap >= ScannerConfig.VWAP_BOUNCE_BARS:
             logger.info(f"  VWAP PULLBACK: ${price:.2f} "
                         f"(VWAP=${vwap:.2f})")
-            return "vwap_pullback", price
+            signal, signal_price = "vwap_pullback", price
 
         # ── Signal B: Pre-Market High Breakout ───────────────────────
-        if self.pm_high and self.pm_high > 0:
+        if signal is None and self.pm_high and self.pm_high > 0:
             breakout = self.pm_high * (
                 1 + ScannerConfig.PM_HIGH_BUFFER_PCT / 100)
             if price > breakout:
                 logger.info(f"  PM HIGH BREAKOUT: ${price:.2f} "
                             f"(PM high=${self.pm_high:.2f})")
-                return "pm_breakout", price
+                signal, signal_price = "pm_breakout", price
 
         # ── Signal C: Timeout after 15 min ───────────────────────────
-        now = self.get_current_time_et()
-        scan_min = (ScannerConfig.SCAN_TIME.hour * 60 +
-                    ScannerConfig.SCAN_TIME.minute)
-        now_min = now.hour * 60 + now.minute
-        if (now_min - scan_min) >= 15:
-            if price > self.target_data["prev_close"]:
-                logger.info(f"  TIMEOUT entry: ${price:.2f} "
-                            f"(15 min elapsed, gap valid)")
-                return "timeout", price
+        if signal is None:
+            now = self.get_current_time_et()
+            scan_min = (ScannerConfig.SCAN_TIME.hour * 60 +
+                        ScannerConfig.SCAN_TIME.minute)
+            now_min = now.hour * 60 + now.minute
+            if (now_min - scan_min) >= 15:
+                if price > self.target_data["prev_close"]:
+                    logger.info(f"  TIMEOUT entry: ${price:.2f} "
+                                f"(15 min elapsed, gap valid)")
+                    signal, signal_price = "timeout", price
+
+        # ── Relative Strength vs SPY gate ────────────────────────────
+        # If a signal fired, check if the stock is outperforming SPY.
+        # If it's underperforming, skip the entry — the stock is weak.
+        if signal is not None and not self.dry_run and ScannerConfig.RS_FILTER_ENABLED:
+            stock_open = self.target_data.get("open", 0)
+            if stock_open and stock_open > 0:
+                rs = self.get_spy_relative_strength(signal_price, stock_open)
+                if rs is not None and rs < ScannerConfig.RS_MIN_THRESHOLD:
+                    logger.warning(
+                        f"  SKIPPING {signal}: RS vs SPY = {rs:+.2f}% "
+                        f"(stock is underperforming market, "
+                        f"threshold={ScannerConfig.RS_MIN_THRESHOLD}%)"
+                    )
+                    return None, None
+                # Log RS even when we proceed
+                if rs is not None:
+                    self.target_data["rs_vs_spy"] = rs
+
+        if signal is not None:
+            return signal, signal_price
 
         return None, None
 
@@ -1196,6 +1281,10 @@ class GapScannerBot:
         self.float_rotation = 0
         self.intraday_high = 0
         self.intraday_volume = 0
+
+        # Relative strength vs SPY
+        self._spy_contract = None
+        self._spy_open = None
 
         # Multi-trade tracking
         self.trades_today = 0

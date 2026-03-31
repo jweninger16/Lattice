@@ -289,7 +289,7 @@ function SettingsTab({ bal, bot }) {
 
   useEffect(() => {
     api("/settings").then(s => { setCfg(s); setLoading(false); }).catch(() => {
-      setCfg({ position_pct: 0.33, max_trades_per_day: 5, trail_atr_mult: 0.20, entry_mode: "smart", min_gap_pct: 1.5, max_gap_pct: 8.0, min_rvol: 1.5, last_entry_hour: 15, last_entry_minute: 0, scan_time_hour: 9, scan_time_minute: 35 });
+      setCfg({ position_pct: 0.33, max_trades_per_day: 5, trail_atr_mult: 0.20, entry_mode: "smart", min_gap_pct: 1.5, max_gap_pct: 8.0, min_rvol: 1.5, last_entry_hour: 15, last_entry_minute: 0, scan_time_hour: 9, scan_time_minute: 35, rs_filter_enabled: true, rs_min_threshold: -0.5 });
       setLoading(false);
     });
   }, []);
@@ -333,6 +333,19 @@ function SettingsTab({ bal, bot }) {
             )}</div>
           </div>
           <div style={{fontSize:10,color:"#475569",marginTop:6}}>{cfg.entry_mode==="smart"?"Waits for VWAP pullback or PM high breakout":"Buys immediately when candidate found"}</div>
+        </div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={lbs}>SPY relative strength filter</span>
+            <div style={{display:"flex",gap:6}}>{[["on","On"],["off","Off"]].map(([v,l])=>
+              <div key={v} onClick={()=>set("rs_filter_enabled",v==="on")} style={{padding:"6px 14px",borderRadius:6,fontSize:11,fontWeight:500,cursor:"pointer",background:(cfg.rs_filter_enabled&&v==="on")||(!cfg.rs_filter_enabled&&v==="off")?"rgba(56,189,248,0.12)":"rgba(0,0,0,0.2)",border:(cfg.rs_filter_enabled&&v==="on")||(!cfg.rs_filter_enabled&&v==="off")?"1px solid rgba(56,189,248,0.3)":"1px solid rgba(255,255,255,0.05)",color:(cfg.rs_filter_enabled&&v==="on")||(!cfg.rs_filter_enabled&&v==="off")?"#38bdf8":"#64748b"}}>{l}</div>
+            )}</div>
+          </div>
+          <div style={{fontSize:10,color:"#475569",marginTop:6}}>Skip entry if stock is underperforming SPY. Filters out weak stocks riding the market.</div>
+          {cfg.rs_filter_enabled && <div style={{marginTop:8}}>
+            <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#94a3b8"}}>Skip if underperforming by</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{Math.abs(cfg.rs_min_threshold||0.5)}%+</span></div>
+            <input type="range" min="0" max="20" step="1" value={Math.abs((cfg.rs_min_threshold||0.5)*10)} onChange={e => set("rs_min_threshold", -parseInt(e.target.value)/10)} style={sls}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:10,color:"#475569"}}>0% (strict)</span><span style={{fontSize:10,color:"#475569"}}>2% (lenient)</span></div>
+          </div>}
         </div>
       </div>
       <div style={pns}>

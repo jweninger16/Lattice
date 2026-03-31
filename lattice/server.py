@@ -371,6 +371,8 @@ async def get_settings():
         "last_entry_minute": 0,
         "scan_time_hour": 9,
         "scan_time_minute": 35,
+        "rs_filter_enabled": True,
+        "rs_min_threshold": -0.5,
     }
     if SETTINGS_FILE.exists():
         with open(SETTINGS_FILE) as f:
@@ -391,6 +393,8 @@ class SettingsUpdate(BaseModel):
     last_entry_minute: int = None
     scan_time_hour: int = None
     scan_time_minute: int = None
+    rs_filter_enabled: bool = None
+    rs_min_threshold: float = None
 
 
 @app.post("/api/settings")
