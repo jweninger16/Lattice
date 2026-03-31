@@ -289,7 +289,7 @@ function SettingsTab({ bal, bot }) {
 
   useEffect(() => {
     api("/settings").then(s => { setCfg(s); setLoading(false); }).catch(() => {
-      setCfg({ position_pct: 0.33, max_trades_per_day: 5, trail_atr_mult: 0.20, entry_mode: "smart", min_gap_pct: 1.5, max_gap_pct: 8.0, min_rvol: 1.5, last_entry_hour: 15, last_entry_minute: 0 });
+      setCfg({ position_pct: 0.33, max_trades_per_day: 5, trail_atr_mult: 0.20, entry_mode: "smart", min_gap_pct: 1.5, max_gap_pct: 8.0, min_rvol: 1.5, last_entry_hour: 15, last_entry_minute: 0, scan_time_hour: 9, scan_time_minute: 35 });
       setLoading(false);
     });
   }, []);
@@ -337,6 +337,11 @@ function SettingsTab({ bal, bot }) {
       </div>
       <div style={pns}>
         <div style={hds}>SCANNER FILTERS</div>
+        <div style={rws}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>First scan time (ET)</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>9:{String(cfg.scan_time_minute||35).padStart(2,"0")}</span></div>
+          <input type="range" min="30" max="40" step="1" value={cfg.scan_time_minute||35} onChange={e => set("scan_time_minute", parseInt(e.target.value))} style={sls}/>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:10,color:"#475569"}}>9:30 (market open)</span><span style={{fontSize:10,color:"#475569"}}>9:40</span></div>
+        </div>
         <div style={rws}>
           <div style={{display:"flex",justifyContent:"space-between"}}><span style={lbs}>Minimum gap</span><span style={{fontSize:14,color:"#38bdf8",fontWeight:600}}>{cfg.min_gap_pct}%</span></div>
           <input type="range" min="0.5" max="5" step="0.5" value={cfg.min_gap_pct} onChange={e => set("min_gap_pct", parseFloat(e.target.value))} style={sls}/>

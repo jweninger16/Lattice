@@ -369,6 +369,8 @@ async def get_settings():
         "min_rvol": 1.5,
         "last_entry_hour": 15,
         "last_entry_minute": 0,
+        "scan_time_hour": 9,
+        "scan_time_minute": 35,
     }
     if SETTINGS_FILE.exists():
         with open(SETTINGS_FILE) as f:
@@ -387,6 +389,8 @@ class SettingsUpdate(BaseModel):
     min_rvol: float = None
     last_entry_hour: int = None
     last_entry_minute: int = None
+    scan_time_hour: int = None
+    scan_time_minute: int = None
 
 
 @app.post("/api/settings")

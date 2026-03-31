@@ -159,6 +159,9 @@ class ScannerConfig:
             if "last_entry_hour" in s and "last_entry_minute" in s:
                 cls.LAST_ENTRY = dtime(s["last_entry_hour"],
                                        s["last_entry_minute"])
+            if "scan_time_hour" in s and "scan_time_minute" in s:
+                cls.SCAN_TIME = dtime(s["scan_time_hour"],
+                                      s["scan_time_minute"])
             logger.info(f"  Settings loaded from {cls.SETTINGS_FILE}")
         except Exception as e:
             logger.warning(f"  Could not load settings: {e}")
