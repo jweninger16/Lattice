@@ -78,6 +78,7 @@ def fmt_entry(bot_name, ticker, direction, qty, price, stop, target,
     lines.append(f"Bought {qty} shares of {ticker} @ ${price:.2f}")
     if why:
         lines.append(why)
+    lines.append("@claudio")
 
     return "\n".join(lines)
 
