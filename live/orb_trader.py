@@ -80,7 +80,7 @@ class ORBConfig:
     TARGET_MULT = 1.5        # Target = 1.5x opening range
     STOP_MULT = 1.0          # Stop = 1.0x opening range
     MAX_GAP_PCT = 0.5        # Skip if gap > 0.5%
-    DIRECTION = "both"       # "long", "short", or "both"
+    DIRECTION = "long"       # "long" only — cash account, no shorting
 
     # Strategy — Late ORB (gap day second entry window)
     # Activates when regular ORB is skipped due to gap filter.
