@@ -77,8 +77,9 @@ class ORBConfig:
     OR_MINUTES = 2           # Opening range: first 2 minutes (9:30-9:32)
     # Research (1-min bars, 85 stocks, costs): 65.2% WR, 1.99 PF, -5.87% DD
     # Shorter OR = tighter range = more decisive breakouts, fewer EOD exits
-    TARGET_MULT = 1.5        # Target = 1.5x opening range
-    STOP_MULT = 1.0          # Stop = 1.0x opening range
+    STOP_MULT = 1.0          # Initial stop = 1.0x opening range
+    TRAIL_MULT = 0.3         # Trailing stop distance = 0.3x opening range
+    # Research: 0.3x trail = 6.69 PF, 67% WR, -1.29% DD (vs 1.64 PF fixed target)
     MAX_GAP_PCT = 0.5        # Skip if gap > 0.5%
     DIRECTION = "long"       # "long" only — cash account, no shorting
 
@@ -1294,18 +1295,12 @@ class MultiORBTrader:
 
         qty = max(1, int(self.position_size / price))
         or_range = state["or_range"]
+        trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
+        stop_price = round(state["or_high"] - or_range * ORBConfig.STOP_MULT, 2)
+        entry_price = state["or_high"]
 
-        if direction == "long":
-            entry_price = state["or_high"]
-            target_price = round(entry_price + or_range * ORBConfig.TARGET_MULT, 2)
-            stop_price = round(entry_price - or_range * ORBConfig.STOP_MULT, 2)
-            parent = MarketOrder("BUY", qty)
-        else:
-            entry_price = state["or_low"]
-            target_price = round(entry_price - or_range * ORBConfig.TARGET_MULT, 2)
-            stop_price = round(entry_price + or_range * ORBConfig.STOP_MULT, 2)
-            parent = MarketOrder("SELL", qty)
-
+        # Entry: market buy
+        parent = MarketOrder("BUY", qty)
         parent.tif = "DAY"
         parent.transmit = False
 
@@ -1317,23 +1312,12 @@ class MultiORBTrader:
                 logger.error(f"{ticker}: entry REJECTED: {parent_trade.orderStatus.status}")
                 return False
 
-            # Stop loss
-            if direction == "long":
-                stop = StopOrder("SELL", qty, stop_price)
-                target = LimitOrder("SELL", qty, target_price)
-            else:
-                stop = StopOrder("BUY", qty, stop_price)
-                target = LimitOrder("BUY", qty, target_price)
-
-            stop.tif = "DAY"
-            stop.parentId = parent_trade.order.orderId
-            stop.transmit = False
-            self.ib.placeOrder(contract, stop)
-
-            target.tif = "DAY"
-            target.parentId = parent_trade.order.orderId
-            target.transmit = True  # Transmit the whole bracket
-            self.ib.placeOrder(contract, target)
+            # Initial stop (protects against immediate reversal before trail kicks in)
+            initial_stop = StopOrder("SELL", qty, stop_price)
+            initial_stop.tif = "DAY"
+            initial_stop.parentId = parent_trade.order.orderId
+            initial_stop.transmit = True
+            self.ib.placeOrder(contract, initial_stop)
 
             self.ib.sleep(1)
 
@@ -1346,28 +1330,33 @@ class MultiORBTrader:
             "entry": entry_price,
             "qty": qty,
             "stop": stop_price,
-            "target": target_price,
+            "trail_amt": trail_amt,
+            "trail_active": False,  # Activated once price moves above entry + trail_amt
+            "highest": entry_price,
             "order_id": parent_trade.order.orderId,
+            "stop_order_id": initial_stop.orderId,
             "confirmed": False,
             "contract": contract,
         }
         self.trades_today += 1
         state["breakout_detected"] = True
 
-        logger.info(f"ENTRY: {direction.upper()} {qty} {ticker} @ ~${price:.2f} "
-                    f"(vol {vol_ratio:.1f}x) | stop=${stop_price:.2f} | "
-                    f"target=${target_price:.2f} | trade {self.trades_today}/{self.max_trades}")
+        logger.info(f"ENTRY: LONG {qty} {ticker} @ ~${price:.2f} "
+                    f"(vol {vol_ratio:.1f}x) | initial stop=${stop_price:.2f} | "
+                    f"trail=${trail_amt:.2f} ({ORBConfig.TRAIL_MULT}x OR) | "
+                    f"trade {self.trades_today}/{self.max_trades}")
 
         try:
             from live.alerts import send_discord
             if fmt_entry:
                 msg = fmt_entry("ORB", ticker, direction, qty,
-                                price, stop_price, target_price,
+                                price, stop_price, None,
                                 position_size=self.position_size,
                                 extra={"Vol ratio": f"{vol_ratio:.1f}x",
+                                       "Trail": f"${trail_amt:.2f}",
                                        "Trade": f"{self.trades_today}/{self.max_trades}"})
             else:
-                msg = f"ORB {direction.upper()}: {qty} {ticker} @ ${price:.2f} (vol {vol_ratio:.1f}x)"
+                msg = f"ORB LONG: {qty} {ticker} @ ${price:.2f} (vol {vol_ratio:.1f}x, trail ${trail_amt:.2f})"
             send_discord(msg)
         except Exception:
             pass
@@ -1377,7 +1366,7 @@ class MultiORBTrader:
     # ── Position Monitoring ───────────────────────────────────────────
 
     def check_all_positions(self):
-        """Check if any bracket orders have been filled (stop or target hit)."""
+        """Check positions, update trailing stops, detect exits."""
         ibkr_positions = {pos.contract.symbol: pos.position
                           for pos in self.ib.positions()}
 
@@ -1387,32 +1376,47 @@ class MultiORBTrader:
 
             if has_ibkr_pos:
                 pos["confirmed"] = True
+
+                # Update trailing stop: get current price and adjust stop upward
+                price = self.get_current_price(pos["contract"])
+                if price and price > pos.get("highest", pos["entry"]):
+                    pos["highest"] = price
+                    new_stop = round(price - pos["trail_amt"], 2)
+                    if new_stop > pos["stop"]:
+                        # Modify the stop order to the new higher price
+                        try:
+                            for order in self.ib.openOrders():
+                                if (order.orderId == pos.get("stop_order_id") or
+                                    (order.parentId == pos["order_id"] and
+                                     order.orderType in ("STP", "TRAIL"))):
+                                    order.auxPrice = new_stop
+                                    self.ib.placeOrder(pos["contract"], order)
+                                    break
+                            old_stop = pos["stop"]
+                            pos["stop"] = new_stop
+                            if not pos.get("trail_active"):
+                                pos["trail_active"] = True
+                                logger.info(f"{ticker}: trail activated | "
+                                            f"stop ${old_stop:.2f} -> ${new_stop:.2f} "
+                                            f"(high ${price:.2f})")
+                            else:
+                                logger.debug(f"{ticker}: trail updated ${old_stop:.2f} -> "
+                                             f"${new_stop:.2f} (high ${price:.2f})")
+                        except Exception as e:
+                            logger.warning(f"{ticker}: failed to update stop: {e}")
                 continue
 
             if not has_ibkr_pos and pos.get("confirmed"):
-                # Position was confirmed, now gone = bracket filled
+                # Position was confirmed, now gone = stop was hit
                 entry = pos["entry"]
-                dist_to_stop = abs(entry - pos["stop"])
-                dist_to_target = abs(entry - pos["target"])
+                exit_price = pos["stop"]  # Best estimate: the current stop level
+                reason = "trail" if pos.get("trail_active") else "stop"
 
-                # Get current price to infer which side filled
-                price = self.get_current_price(pos["contract"])
-                if price:
-                    dist_to_stop = abs(price - pos["stop"])
-                    dist_to_target = abs(price - pos["target"])
-
-                if dist_to_stop < dist_to_target:
-                    exit_price, reason = pos["stop"], "stop"
-                else:
-                    exit_price, reason = pos["target"], "target"
-
-                if pos["direction"] == "long":
-                    pnl = (exit_price - entry) / entry * 100
-                else:
-                    pnl = (entry - exit_price) / entry * 100
+                pnl = (exit_price - entry) / entry * 100
                 self.daily_pnl += pnl
 
-                logger.info(f"{ticker}: bracket filled ({reason}) | P&L: {pnl:+.2f}%")
+                logger.info(f"{ticker}: {reason} filled @ ~${exit_price:.2f} | "
+                            f"P&L: {pnl:+.2f}%")
                 try:
                     from live.alerts import send_discord
                     if fmt_exit:
