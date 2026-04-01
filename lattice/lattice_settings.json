@@ -1,7 +1,8 @@
 {
+  "bot_strategy": "orb",
   "position_pct": 0.3,
   "max_trades_per_day": 5,
-  "trail_atr_mult": 0.25,
+  "trail_atr_mult": 0.2,
   "entry_mode": "smart",
   "min_gap_pct": 1.5,
   "max_gap_pct": 8.0,
@@ -9,5 +10,5 @@
   "last_entry_hour": 15,
   "last_entry_minute": 0,
   "scan_time_hour": 9,
-  "scan_time_minute": 35
+  "scan_time_minute": 32
 }

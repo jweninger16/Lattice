@@ -59,18 +59,39 @@ class BotManager:
         self.clients = []  # WebSocket clients
         self._lock = threading.Lock()
 
-    def start(self, live=True):
+    def start(self, live=True, strategy=None):
         if self.running:
             return {"status": "already_running"}
 
-        cmd = [
-            sys.executable,
-            str(PROJECT_ROOT / "live" / "gap_scanner.py"),
-        ]
-        if live:
-            cmd.append("--live")
+        # Determine strategy from param or settings file
+        if strategy is None:
+            try:
+                if SETTINGS_FILE.exists():
+                    with open(SETTINGS_FILE) as f:
+                        strategy = json.load(f).get("bot_strategy", "orb")
+                else:
+                    strategy = "orb"
+            except Exception:
+                strategy = "orb"
+
+        if strategy == "orb":
+            cmd = [
+                sys.executable,
+                str(PROJECT_ROOT / "live" / "orb_trader.py"),
+            ]
+            if live:
+                cmd.append("--live")
+            # Multi-ticker mode is the default (no --single flag)
         else:
-            cmd.append("--dry-run")
+            # gap_scanner (legacy)
+            cmd = [
+                sys.executable,
+                str(PROJECT_ROOT / "live" / "gap_scanner.py"),
+            ]
+            if live:
+                cmd.append("--live")
+            else:
+                cmd.append("--dry-run")
 
         self.process = subprocess.Popen(
             cmd,
@@ -82,12 +103,13 @@ class BotManager:
         )
         self.running = True
         self.log_buffer.clear()
+        self.active_strategy = strategy
 
         # Start log reader thread
         thread = threading.Thread(target=self._read_output, daemon=True)
         thread.start()
 
-        return {"status": "started"}
+        return {"status": "started", "strategy": strategy}
 
     def stop(self):
         if not self.running or not self.process:
@@ -296,6 +318,7 @@ class CreateAccountRequest(BaseModel):
 class BotControlRequest(BaseModel):
     action: str  # "start" or "stop"
     live: bool = True
+    strategy: str = None  # "orb" or "gap_scanner"; if None, reads from settings
 
 
 # ── API Routes ───────────────────────────────────────────────────────
@@ -360,6 +383,7 @@ async def get_equity():
 async def get_settings():
     """Read current bot settings."""
     defaults = {
+        "bot_strategy": "orb",          # "orb" (multi-ticker ORB) or "gap_scanner"
         "position_pct": 0.33,
         "max_trades_per_day": 5,
         "trail_atr_mult": 0.20,
@@ -382,6 +406,7 @@ async def get_settings():
 
 
 class SettingsUpdate(BaseModel):
+    bot_strategy: str = None  # "orb" or "gap_scanner"
     position_pct: float = None
     max_trades_per_day: int = None
     trail_atr_mult: float = None
@@ -420,6 +445,7 @@ async def update_settings(req: SettingsUpdate):
 async def bot_status():
     return {
         "running": bot_manager.running,
+        "strategy": getattr(bot_manager, "active_strategy", None),
         "logs": bot_manager.get_recent_logs(20),
     }
 
@@ -480,7 +506,7 @@ async def crypto_stop():
 @app.post("/api/bot/control")
 async def bot_control(req: BotControlRequest):
     if req.action == "start":
-        result = bot_manager.start(live=req.live)
+        result = bot_manager.start(live=req.live, strategy=req.strategy)
     elif req.action == "stop":
         result = bot_manager.stop()
     else:

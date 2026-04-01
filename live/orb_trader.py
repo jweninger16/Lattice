@@ -3,40 +3,36 @@ live/orb_trader.py
 -------------------
 Opening Range Breakout (ORB) day trading bot.
 
-Connects to IBKR (paper or live) and trades QQQ based on the
-15-minute opening range breakout strategy.
+Default mode: Multi-ticker — scans 85 S&P 500 stocks from ORB universe,
+computes opening ranges for all, enters the top 3 volume-confirmed
+breakouts per day ranked by vol_ratio (breakout volume / OR avg volume).
 
-Strategy (validated in research):
-  - Wait for first 15 minutes (9:30-9:45 AM ET) to form opening range
-  - Record OR high and OR low
-  - If price breaks above OR high → BUY (long breakout)
-  - If price breaks below OR low → SELL SHORT (short breakout)
-  - Exit at: 1.5x OR range profit target, 1x OR range stop loss, or 3:55 PM
-  - Skip days where gap from prior close > 0.5% (gap filter)
+Strategy:
+  - 9:30-9:32 AM ET: opening range forms (first 2 one-minute bars)
+  - Gap filter: skip tickers where gap > 0.5%
+  - Volume confirmation: only enter if breakout bar volume > OR avg volume
+  - Rank all breakouts by vol_ratio, take top MAX_TRADES_PER_DAY
+  - Exit at: 1.5x OR range target, 1.0x OR range stop, or 3:55 PM
+  - $950 per position, 2 trades/day = $1,900 max exposure
+  - Sized for $1,945 settled capital (no unsettled fund usage)
 
-Late ORB (gap day second entry window):
-  - When gap > 0.5% triggers the gap filter, instead of sitting out:
-  - Wait for 10:30-10:45 AM to form a NEW "late" opening range
-  - LONG-ONLY breakout above the late OR high
-  - Same 1.5:1 R:R, same stop/target logic
-  - Position size reduced to 50% (LATE_POSITION_SCALE) while proving out
-  - Research: SPY 14 trades, 57% win, 2.29 PF, +1.80%, -0.29% max DD
-  - Toggle: set LATE_ORB_ENABLED = False to disable
+Research results (85 stocks, 1-min bars, realistic costs):
+  2-min OR: 411 trades, 65.2% WR, 1.99 PF, +111.54% total, -5.87% max DD
 
-Best research results (QQQ, 60 days):
-  - 62.5% win rate, 2.53 profit factor, +7.01% total
-  - Max 3 consecutive losses, -1.44% max drawdown
+Legacy single-ticker mode (QQQ only) available via --single flag.
 
 Requirements:
   - IBKR TWS running with API enabled
   - Market data subscription for US equities
   - pip install ib_insync
+  - data/orb_universe.csv (run: python research/orb_volume_stock_backtest.py --universe-only)
 
 Usage:
-    python live/orb_trader.py                    # Paper trading (default)
-    python live/orb_trader.py --live             # Live trading (careful!)
-    python live/orb_trader.py --size 500         # Custom position size in USD
-    python main.py orb                           # Via main entry point
+    python main.py orb                           # Multi-ticker, paper (default)
+    python main.py orb --live                    # Multi-ticker, live
+    python main.py orb --max-trades 5            # Allow up to 5 trades/day
+    python main.py orb --single                  # Legacy single-ticker QQQ mode
+    python main.py orb --size 1000               # Custom position size
 """
 
 import sys
@@ -78,7 +74,9 @@ class ORBConfig:
 
     # Strategy — Regular ORB
     TICKER = "QQQ"
-    OR_MINUTES = 15          # Opening range: first 15 minutes
+    OR_MINUTES = 2           # Opening range: first 2 minutes (9:30-9:32)
+    # Research (1-min bars, 85 stocks, costs): 65.2% WR, 1.99 PF, -5.87% DD
+    # Shorter OR = tighter range = more decisive breakouts, fewer EOD exits
     TARGET_MULT = 1.5        # Target = 1.5x opening range
     STOP_MULT = 1.0          # Stop = 1.0x opening range
     MAX_GAP_PCT = 0.5        # Skip if gap > 0.5%
@@ -98,14 +96,22 @@ class ORBConfig:
     LATE_LAST_ENTRY = dtime(14, 0)   # No late entries after 2 PM
     LATE_POSITION_SCALE = 0.5        # 50% of normal size while proving out
 
-    # Risk
-    POSITION_SIZE_USD = 500  # Default position size
-    MAX_DAILY_LOSS_PCT = 1.0 # Stop trading if down 1% for the day
-    MAX_TRADES_PER_DAY = 1   # Only one ORB trade per day
+    # Volume confirmation — only enter breakouts where the breakout bar's
+    # volume exceeds the average volume during the opening range period.
+    # Research: 85 stocks, 1802 trades, 63.8% WR / 2.29 PF with costs.
+    REQUIRE_VOLUME_CONFIRMATION = True
+
+    # Risk — sized for $1,945 settled capital, no unsettled fund usage
+    # 2 x $950 = $1,900 exposure (leaves $45 buffer)
+    # Commission drag at $950: 0.145% round-trip (acceptable)
+    # Sweep results at 2/day: 61.9% WR, 2.48 PF, -2.81% max DD
+    POSITION_SIZE_USD = 950
+    MAX_DAILY_LOSS_PCT = 1.0  # Stop trading if down 1% for the day
+    MAX_TRADES_PER_DAY = 2
 
     # Timing (Eastern Time)
     MARKET_OPEN = dtime(9, 30)
-    OR_END = dtime(9, 45)    # End of 15-min opening range
+    OR_END = dtime(9, 32)    # End of 2-min opening range
     LAST_ENTRY = dtime(14, 0)  # No new entries after 2 PM
     FORCE_EXIT = dtime(15, 55)  # Force close at 3:55 PM
     MARKET_CLOSE = dtime(16, 0)
@@ -129,9 +135,11 @@ class ORBTrader:
         self.or_high = None
         self.or_low = None
         self.or_range = None
+        self.or_avg_volume = None    # Average volume during OR period (for confirmation)
         self.prev_close = None
         self.gap_pct = None
         self.trade_taken = False
+        self.trades_today = 0        # Track number of trades taken today
         self.entered_trade = False   # True only when a real order was placed
         self.gap_skipped = False     # True when gap filter sat us out
         self.daily_pnl = 0
@@ -236,9 +244,11 @@ class ORBTrader:
         self.or_high = None
         self.or_low = None
         self.or_range = None
+        self.or_avg_volume = None
         self.prev_close = None
         self.gap_pct = None
         self.trade_taken = False
+        self.trades_today = 0
         self.entered_trade = False
         self.gap_skipped = False
         self.daily_pnl = 0
@@ -255,10 +265,18 @@ class ORBTrader:
 
     def compute_opening_range(self, contract):
         """
-        Computes the opening range from the first 15 minutes of trading.
-        Uses 5-minute bars: first 3 bars = 15 minutes.
+        Computes the opening range from the first OR_MINUTES of trading.
+        Uses 1-minute bars for precision (critical for 2-min OR).
         """
-        bars = self.get_5min_bars(contract, duration="1800 S")
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract, endDateTime="", durationStr="600 S",
+                barSizeSetting="1 min", whatToShow="TRADES", useRTH=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get 1-min bars: {e}")
+            return False
+
         if not bars:
             logger.warning("No bars available for opening range")
             return False
@@ -272,22 +290,26 @@ class ORBTrader:
             if bar_date == date.today():
                 today_bars.append(bar)
 
-        if len(today_bars) < 3:
-            logger.info(f"Only {len(today_bars)} bars so far, need 3 for 15-min OR")
+        n_bars = ORBConfig.OR_MINUTES
+        if len(today_bars) < n_bars:
+            logger.info(f"Only {len(today_bars)} bars so far, need {n_bars} for {ORBConfig.OR_MINUTES}-min OR")
             return False
 
-        # First 3 five-minute bars = 15-minute opening range
-        or_bars = today_bars[:3]
+        or_bars = today_bars[:n_bars]
         self.or_high = max(b.high for b in or_bars)
         self.or_low = min(b.low for b in or_bars)
         self.or_range = self.or_high - self.or_low
+        self.or_avg_volume = sum(b.volume for b in or_bars) / len(or_bars)
 
         if self.or_range <= 0:
             logger.warning("Opening range is zero — skipping today")
             return False
 
-        logger.info(f"Opening Range: high=${self.or_high:.2f} low=${self.or_low:.2f} "
+        logger.info(f"Opening Range ({ORBConfig.OR_MINUTES}min): "
+                    f"high=${self.or_high:.2f} low=${self.or_low:.2f} "
                     f"range=${self.or_range:.2f} ({self.or_range/self.or_high*100:.2f}%)")
+        logger.info(f"OR avg volume: {self.or_avg_volume:,.0f} "
+                    f"(volume confirmation: {'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'})")
         return True
 
     def check_gap_filter(self, contract):
@@ -467,7 +489,8 @@ class ORBTrader:
             "target": target_price,
             "order_id": parent_trade.order.orderId,
         }
-        self.trade_taken = True
+        self.trades_today += 1
+        self.trade_taken = self.trades_today >= ORBConfig.MAX_TRADES_PER_DAY
         self.entered_trade = True
 
         logger.info(f"LATE ORB {direction.upper()} ENTRY: "
@@ -499,7 +522,10 @@ class ORBTrader:
         return True
 
     def check_breakout(self, contract):
-        """Checks if price has broken out of the opening range."""
+        """Checks if price has broken out of the opening range.
+        If REQUIRE_VOLUME_CONFIRMATION is True, only signals a breakout
+        when the most recent 5-min bar's volume exceeds the OR average volume.
+        """
         price = self.get_current_price(contract)
         if price is None:
             return None, None
@@ -509,6 +535,21 @@ class ORBTrader:
             direction = "long"
         elif ORBConfig.DIRECTION in ("short", "both") and price < self.or_low:
             direction = "short"
+
+        # Volume confirmation: reject breakout if current bar volume is too low
+        if direction and ORBConfig.REQUIRE_VOLUME_CONFIRMATION and self.or_avg_volume:
+            bars = self.get_5min_bars(contract, duration="600 S")  # last ~10 min
+            if bars:
+                current_bar_volume = bars[-1].volume
+                if current_bar_volume < self.or_avg_volume:
+                    logger.debug(f"Breakout {direction} rejected: bar vol "
+                                 f"{current_bar_volume:,.0f} < OR avg "
+                                 f"{self.or_avg_volume:,.0f}")
+                    return None, price
+                else:
+                    vol_ratio = current_bar_volume / self.or_avg_volume
+                    logger.info(f"Volume confirmed: {current_bar_volume:,.0f} "
+                                f"= {vol_ratio:.1f}x OR avg")
 
         return direction, price
 
@@ -602,7 +643,8 @@ class ORBTrader:
             "target": target_price,
             "order_id": parent_trade.order.orderId,
         }
-        self.trade_taken = True
+        self.trades_today += 1
+        self.trade_taken = self.trades_today >= ORBConfig.MAX_TRADES_PER_DAY
         self.entered_trade = True
 
         logger.info(f"{'LONG' if direction == 'long' else 'SHORT'} ENTRY: "
@@ -789,6 +831,9 @@ class ORBTrader:
         logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
                     f"{ORBConfig.TARGET_MULT}:{ORBConfig.STOP_MULT} R:R, "
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
+        logger.info(f"  Volume confirmation: "
+                    f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
+        logger.info(f"  Max trades/day: {ORBConfig.MAX_TRADES_PER_DAY}")
         if ORBConfig.LATE_ORB_ENABLED:
             late_size = self.position_size * ORBConfig.LATE_POSITION_SCALE
             logger.info(f"  Late ORB: ON — 10:30 {ORBConfig.LATE_DIRECTION}-only, "
@@ -874,7 +919,7 @@ class ORBTrader:
                             logger.info("  Mode: Late ORB attempted (no breakout)")
                     elif self.gap_skipped:
                         logger.info("  Skipped: gap filter (late ORB disabled)")
-                    logger.info(f"  Trades taken: {'Yes' if self.entered_trade else 'No'}")
+                    logger.info(f"  Trades taken: {self.trades_today}/{ORBConfig.MAX_TRADES_PER_DAY}")
                     logger.info(f"  Daily P&L: {self.daily_pnl:+.2f}%")
                     break
 
@@ -885,27 +930,29 @@ class ORBTrader:
                     continue
 
                 # No new entries after 2 PM (applies to both regular and late ORB)
-                if current_time >= ORBConfig.LAST_ENTRY and not self.trade_taken:
+                has_capacity = self.trades_today < ORBConfig.MAX_TRADES_PER_DAY
+                if current_time >= ORBConfig.LAST_ENTRY and has_capacity and not self.trade_taken:
                     if self.late_orb_mode:
                         logger.info("Past 2 PM — late ORB window expired, no trades today")
                     else:
-                        logger.info("Past 2 PM with no breakout — no trades today")
+                        logger.info(f"Past 2 PM — {self.trades_today} trades taken today")
                     self.trade_taken = True
                     self.ib.sleep(60)
                     continue
 
-                # Check for regular breakout
-                if not self.trade_taken and self.or_high is not None:
+                # Check for regular breakout (if we haven't hit daily trade cap)
+                if has_capacity and not self.trade_taken and self.or_high is not None:
                     direction, price = self.check_breakout(contract)
                     if direction:
-                        logger.info(f"BREAKOUT DETECTED: {direction.upper()} @ ${price:.2f}")
+                        logger.info(f"BREAKOUT DETECTED: {direction.upper()} @ ${price:.2f} "
+                                    f"(trade {self.trades_today + 1}/{ORBConfig.MAX_TRADES_PER_DAY})")
                         self.enter_trade(contract, direction, price)
                     else:
                         logger.debug(f"No breakout yet. Price: ${price:.2f} "
                                      f"(OR: ${self.or_low:.2f}-${self.or_high:.2f})")
 
                 # ── Late ORB state machine ────────────────────────────
-                if self.late_orb_mode and not self.trade_taken:
+                if self.late_orb_mode and has_capacity and not self.trade_taken:
 
                     # Waiting for late OR window to start
                     if current_time < ORBConfig.LATE_OR_START:
@@ -994,6 +1041,589 @@ class ORBTrader:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Multi-Ticker ORB Bot (S&P 500 universe)
+#
+# Research results (85 stocks, 60d, $2K positions, 0.02% slip, $1 comm):
+#   3/day cap: 177 trades, 59.3% WR, 2.06 PF, $935, -3.70% DD
+#   Uncapped:  1802 trades, 63.8% WR, 2.29 PF, $11.6K, -15.8% DD
+# ═══════════════════════════════════════════════════════════════════════
+
+class MultiORBTrader:
+    """
+    Scans the ORB universe for volume-confirmed breakouts.
+    Ranks candidates by vol_ratio, enters the top MAX_TRADES_PER_DAY.
+    Manages multiple concurrent bracket orders via IBKR.
+    """
+
+    def __init__(self, paper=True, position_size=None, max_trades=None):
+        self.paper = paper
+        self.port = ORBConfig.PAPER_PORT if paper else ORBConfig.LIVE_PORT
+        self.position_size = position_size or ORBConfig.POSITION_SIZE_USD
+        self.max_trades = max_trades or ORBConfig.MAX_TRADES_PER_DAY
+        self.ib = None
+
+        # Per-ticker state: {ticker: {or_high, or_low, or_range, or_avg_volume, ...}}
+        self.ticker_state = {}
+        # Active positions: {ticker: {direction, entry, qty, stop, target, order_id, confirmed, contract}}
+        self.positions = {}
+        self.trades_today = 0
+        self.daily_pnl = 0
+        self.today = None
+
+    def connect(self):
+        self.ib = IB()
+        mode = "PAPER" if self.paper else "LIVE"
+        try:
+            self.ib.connect(ORBConfig.HOST, self.port, clientId=ORBConfig.CLIENT_ID)
+            logger.info(f"Connected to IBKR ({mode}) on port {self.port}")
+            return True
+        except Exception as e:
+            logger.error(f"Connection failed: {e}")
+            return False
+
+    def disconnect(self):
+        if self.ib and self.ib.isConnected():
+            self.ib.disconnect()
+            logger.info("Disconnected from IBKR")
+
+    def get_current_time_et(self):
+        try:
+            import zoneinfo
+            et = zoneinfo.ZoneInfo("America/New_York")
+            return datetime.now(et)
+        except ImportError:
+            return datetime.now() + timedelta(hours=1)
+
+    def load_universe(self):
+        """Load ORB universe tickers from data/orb_universe.csv."""
+        import pandas as pd
+        universe_path = Path("data/orb_universe.csv")
+        if not universe_path.exists():
+            logger.error("No ORB universe found. Run: python research/orb_volume_stock_backtest.py --universe-only")
+            return []
+        df = pd.read_csv(universe_path)
+        tickers = df["ticker"].tolist()
+        logger.info(f"Loaded {len(tickers)} tickers from ORB universe")
+        return tickers
+
+    def qualify_contract(self, ticker):
+        """Returns a qualified IBKR contract for a ticker."""
+        try:
+            contract = Stock(ticker, "SMART", "USD")
+            self.ib.qualifyContracts(contract)
+            return contract
+        except Exception as e:
+            logger.warning(f"{ticker}: failed to qualify contract: {e}")
+            return None
+
+    def get_5min_bars(self, contract, duration="1800 S"):
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract, endDateTime="", durationStr=duration,
+                barSizeSetting="5 mins", whatToShow="TRADES", useRTH=True
+            )
+            return bars
+        except Exception as e:
+            logger.debug(f"{contract.symbol}: bar fetch failed: {e}")
+            return []
+
+    def get_current_price(self, contract):
+        try:
+            self.ib.reqMktData(contract, "", False, False)
+            self.ib.sleep(1)
+            ticker = self.ib.ticker(contract)
+            price = ticker.last
+            if price != price:
+                price = ticker.close
+            if price != price:
+                price = (ticker.bid + ticker.ask) / 2 if ticker.bid == ticker.bid else None
+            self.ib.cancelMktData(contract)
+            return price
+        except Exception:
+            return None
+
+    # ── Opening Range Computation ─────────────────────────────────────
+
+    def get_1min_bars(self, contract, duration="600 S"):
+        """Gets recent 1-minute bars."""
+        try:
+            bars = self.ib.reqHistoricalData(
+                contract, endDateTime="", durationStr=duration,
+                barSizeSetting="1 min", whatToShow="TRADES", useRTH=True
+            )
+            return bars
+        except Exception as e:
+            logger.debug(f"{contract.symbol}: 1-min bar fetch failed: {e}")
+            return []
+
+    def compute_all_opening_ranges(self, tickers, contracts):
+        """
+        After OR_END, compute opening ranges for all tickers using 1-min bars.
+        Filters out tickers with gaps > MAX_GAP_PCT.
+        Stores results in self.ticker_state.
+        """
+        logger.info(f"Computing {ORBConfig.OR_MINUTES}-min opening ranges "
+                    f"for {len(tickers)} tickers...")
+        computed = 0
+        skipped_gap = 0
+        skipped_data = 0
+        n_or_bars = ORBConfig.OR_MINUTES
+
+        for ticker in tickers:
+            contract = contracts.get(ticker)
+            if contract is None:
+                skipped_data += 1
+                continue
+
+            bars = self.get_1min_bars(contract, duration="7200 S")
+            if not bars:
+                skipped_data += 1
+                continue
+
+            # Filter to today's bars
+            today_bars = [b for b in bars
+                          if (b.date.date() if hasattr(b.date, 'date') else b.date) == date.today()]
+            if len(today_bars) < n_or_bars:
+                skipped_data += 1
+                continue
+
+            # Gap filter: compare today's open to yesterday's close
+            prev_day_bars = [b for b in bars
+                             if (b.date.date() if hasattr(b.date, 'date') else b.date) < date.today()]
+            if prev_day_bars:
+                prev_close = prev_day_bars[-1].close
+                today_open = today_bars[0].open
+                gap_pct = abs(today_open / prev_close - 1) * 100
+                if gap_pct > ORBConfig.MAX_GAP_PCT:
+                    skipped_gap += 1
+                    continue
+
+            or_bars = today_bars[:n_or_bars]
+            or_high = max(b.high for b in or_bars)
+            or_low = min(b.low for b in or_bars)
+            or_range = or_high - or_low
+            or_avg_volume = sum(b.volume for b in or_bars) / len(or_bars)
+
+            if or_range <= 0:
+                skipped_data += 1
+                continue
+
+            self.ticker_state[ticker] = {
+                "or_high": or_high,
+                "or_low": or_low,
+                "or_range": or_range,
+                "or_avg_volume": or_avg_volume,
+                "contract": contract,
+                "breakout_detected": False,
+            }
+            computed += 1
+
+            # Throttle to avoid IBKR pacing violations (50 req/sec limit)
+            if computed % 40 == 0:
+                self.ib.sleep(2)
+
+        logger.info(f"Opening ranges computed: {computed} tickers "
+                    f"(gap-filtered: {skipped_gap}, no data: {skipped_data})")
+
+    # ── Breakout Scanning ─────────────────────────────────────────────
+
+    def scan_for_breakouts(self):
+        """
+        Scan all tickers with computed ORs for volume-confirmed breakouts.
+        Returns list of candidates: [{ticker, direction, price, vol_ratio, state}]
+        sorted by vol_ratio descending (highest conviction first).
+        """
+        candidates = []
+
+        for ticker, state in self.ticker_state.items():
+            if state["breakout_detected"]:
+                continue
+            if ticker in self.positions:
+                continue  # Already have a position in this ticker
+
+            contract = state["contract"]
+            bars = self.get_1min_bars(contract, duration="120 S")
+            if not bars:
+                continue
+
+            latest_bar = bars[-1]
+            price = latest_bar.close
+            bar_volume = latest_bar.volume
+
+            # Volume confirmation
+            if ORBConfig.REQUIRE_VOLUME_CONFIRMATION:
+                if bar_volume < state["or_avg_volume"]:
+                    continue
+
+            vol_ratio = bar_volume / state["or_avg_volume"] if state["or_avg_volume"] > 0 else 1.0
+
+            direction = None
+            if ORBConfig.DIRECTION in ("long", "both") and latest_bar.high > state["or_high"]:
+                direction = "long"
+            elif ORBConfig.DIRECTION in ("short", "both") and latest_bar.low < state["or_low"]:
+                direction = "short"
+
+            if direction:
+                candidates.append({
+                    "ticker": ticker,
+                    "direction": direction,
+                    "price": price,
+                    "vol_ratio": vol_ratio,
+                    "state": state,
+                    "contract": contract,
+                })
+
+            # Throttle
+            if len(candidates) % 30 == 0 and len(candidates) > 0:
+                self.ib.sleep(1)
+
+        # Sort by vol_ratio descending — highest conviction first
+        candidates.sort(key=lambda c: c["vol_ratio"], reverse=True)
+        return candidates
+
+    # ── Order Execution ───────────────────────────────────────────────
+
+    def enter_trade(self, candidate):
+        """Place a bracket order for a breakout candidate."""
+        ticker = candidate["ticker"]
+        direction = candidate["direction"]
+        price = candidate["price"]
+        state = candidate["state"]
+        contract = candidate["contract"]
+        vol_ratio = candidate["vol_ratio"]
+
+        qty = max(1, int(self.position_size / price))
+        or_range = state["or_range"]
+
+        if direction == "long":
+            entry_price = state["or_high"]
+            target_price = round(entry_price + or_range * ORBConfig.TARGET_MULT, 2)
+            stop_price = round(entry_price - or_range * ORBConfig.STOP_MULT, 2)
+            parent = MarketOrder("BUY", qty)
+        else:
+            entry_price = state["or_low"]
+            target_price = round(entry_price - or_range * ORBConfig.TARGET_MULT, 2)
+            stop_price = round(entry_price + or_range * ORBConfig.STOP_MULT, 2)
+            parent = MarketOrder("SELL", qty)
+
+        parent.tif = "DAY"
+        parent.transmit = False
+
+        try:
+            parent_trade = self.ib.placeOrder(contract, parent)
+            self.ib.sleep(2)
+
+            if parent_trade.orderStatus.status in ("Cancelled", "Inactive"):
+                logger.error(f"{ticker}: entry REJECTED: {parent_trade.orderStatus.status}")
+                return False
+
+            # Stop loss
+            if direction == "long":
+                stop = StopOrder("SELL", qty, stop_price)
+                target = LimitOrder("SELL", qty, target_price)
+            else:
+                stop = StopOrder("BUY", qty, stop_price)
+                target = LimitOrder("BUY", qty, target_price)
+
+            stop.tif = "DAY"
+            stop.parentId = parent_trade.order.orderId
+            stop.transmit = False
+            self.ib.placeOrder(contract, stop)
+
+            target.tif = "DAY"
+            target.parentId = parent_trade.order.orderId
+            target.transmit = True  # Transmit the whole bracket
+            self.ib.placeOrder(contract, target)
+
+            self.ib.sleep(1)
+
+        except Exception as e:
+            logger.error(f"{ticker}: order placement failed: {e}")
+            return False
+
+        self.positions[ticker] = {
+            "direction": direction,
+            "entry": entry_price,
+            "qty": qty,
+            "stop": stop_price,
+            "target": target_price,
+            "order_id": parent_trade.order.orderId,
+            "confirmed": False,
+            "contract": contract,
+        }
+        self.trades_today += 1
+        state["breakout_detected"] = True
+
+        logger.info(f"ENTRY: {direction.upper()} {qty} {ticker} @ ~${price:.2f} "
+                    f"(vol {vol_ratio:.1f}x) | stop=${stop_price:.2f} | "
+                    f"target=${target_price:.2f} | trade {self.trades_today}/{self.max_trades}")
+
+        try:
+            from live.alerts import send_discord
+            if fmt_entry:
+                msg = fmt_entry("ORB", ticker, direction, qty,
+                                price, stop_price, target_price,
+                                position_size=self.position_size,
+                                extra={"Vol ratio": f"{vol_ratio:.1f}x",
+                                       "Trade": f"{self.trades_today}/{self.max_trades}"})
+            else:
+                msg = f"ORB {direction.upper()}: {qty} {ticker} @ ${price:.2f} (vol {vol_ratio:.1f}x)"
+            send_discord(msg)
+        except Exception:
+            pass
+
+        return True
+
+    # ── Position Monitoring ───────────────────────────────────────────
+
+    def check_all_positions(self):
+        """Check if any bracket orders have been filled (stop or target hit)."""
+        ibkr_positions = {pos.contract.symbol: pos.position
+                          for pos in self.ib.positions()}
+
+        closed = []
+        for ticker, pos in self.positions.items():
+            has_ibkr_pos = ibkr_positions.get(ticker, 0) != 0
+
+            if has_ibkr_pos:
+                pos["confirmed"] = True
+                continue
+
+            if not has_ibkr_pos and pos.get("confirmed"):
+                # Position was confirmed, now gone = bracket filled
+                entry = pos["entry"]
+                dist_to_stop = abs(entry - pos["stop"])
+                dist_to_target = abs(entry - pos["target"])
+
+                # Get current price to infer which side filled
+                price = self.get_current_price(pos["contract"])
+                if price:
+                    dist_to_stop = abs(price - pos["stop"])
+                    dist_to_target = abs(price - pos["target"])
+
+                if dist_to_stop < dist_to_target:
+                    exit_price, reason = pos["stop"], "stop"
+                else:
+                    exit_price, reason = pos["target"], "target"
+
+                if pos["direction"] == "long":
+                    pnl = (exit_price - entry) / entry * 100
+                else:
+                    pnl = (entry - exit_price) / entry * 100
+                self.daily_pnl += pnl
+
+                logger.info(f"{ticker}: bracket filled ({reason}) | P&L: {pnl:+.2f}%")
+                try:
+                    from live.alerts import send_discord
+                    if fmt_exit:
+                        msg = fmt_exit("ORB", ticker, pos["direction"], pos["qty"],
+                                       entry, exit_price, reason)
+                    else:
+                        msg = f"ORB {reason.upper()}: {ticker} {pnl:+.2f}%"
+                    send_discord(msg)
+                except Exception:
+                    pass
+                closed.append(ticker)
+
+            elif not has_ibkr_pos and not pos.get("confirmed"):
+                # Check if orders still pending
+                open_orders = self.ib.openOrders()
+                has_pending = any(o.orderId == pos.get("order_id") for o in open_orders)
+                if not has_pending:
+                    logger.error(f"{ticker}: entry REJECTED — no position, no pending orders")
+                    closed.append(ticker)
+
+        for ticker in closed:
+            del self.positions[ticker]
+
+    def force_close_all(self):
+        """Force close all open positions at end of day."""
+        if not self.positions:
+            return
+
+        logger.info(f"EOD: Force closing {len(self.positions)} positions...")
+
+        # Cancel all open orders first
+        for order in self.ib.openOrders():
+            try:
+                self.ib.cancelOrder(order)
+            except Exception:
+                pass
+        self.ib.sleep(1)
+
+        for ticker, pos in list(self.positions.items()):
+            contract = pos["contract"]
+            qty = pos["qty"]
+            direction = pos["direction"]
+
+            close_order = MarketOrder("SELL" if direction == "long" else "BUY", qty)
+            close_order.tif = "DAY"
+            self.ib.placeOrder(contract, close_order)
+            self.ib.sleep(1)
+
+            price = self.get_current_price(contract)
+            if price and pos["entry"]:
+                if direction == "long":
+                    pnl = (price - pos["entry"]) / pos["entry"] * 100
+                else:
+                    pnl = (pos["entry"] - price) / pos["entry"] * 100
+                self.daily_pnl += pnl
+                logger.info(f"{ticker}: EOD close @ ${price:.2f} | P&L: {pnl:+.2f}%")
+
+                try:
+                    from live.alerts import send_discord
+                    if fmt_exit:
+                        msg = fmt_exit("ORB", ticker, direction, qty, pos["entry"], price, "eod")
+                    else:
+                        msg = f"ORB EOD: {ticker} {pnl:+.2f}%"
+                    send_discord(msg)
+                except Exception:
+                    pass
+
+        self.positions.clear()
+
+    # ── Main Run Loop ─────────────────────────────────────────────────
+
+    def run(self):
+        """Main trading loop for multi-ticker ORB."""
+        mode = "PAPER" if self.paper else "LIVE"
+        logger.info("=" * 60)
+        logger.info(f"  Multi-Ticker ORB Day Trader -- {mode} MODE")
+        logger.info(f"  Position size: ${self.position_size:,.0f}")
+        logger.info(f"  Max trades/day: {self.max_trades}")
+        logger.info(f"  Max daily exposure: ${self.position_size * self.max_trades:,.0f}")
+        logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
+                    f"{ORBConfig.TARGET_MULT}:{ORBConfig.STOP_MULT} R:R, "
+                    f"gap<{ORBConfig.MAX_GAP_PCT}%")
+        logger.info(f"  Volume confirmation: "
+                    f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
+        logger.info("=" * 60)
+
+        if not self.connect():
+            return
+
+        try:
+            # Load universe and qualify contracts
+            tickers = self.load_universe()
+            if not tickers:
+                return
+
+            logger.info("Qualifying contracts...")
+            contracts = {}
+            for ticker in tickers:
+                c = self.qualify_contract(ticker)
+                if c:
+                    contracts[ticker] = c
+                if len(contracts) % 50 == 0:
+                    self.ib.sleep(1)
+            logger.info(f"Qualified {len(contracts)}/{len(tickers)} contracts")
+
+            self.today = date.today()
+            or_computed = False
+
+            now = self.get_current_time_et()
+            if now.weekday() >= 5:
+                logger.info("Not a trading day (weekend). Exiting.")
+                return
+
+            while True:
+                now = self.get_current_time_et()
+                current_time = now.time()
+
+                # Before market open
+                if current_time < ORBConfig.MARKET_OPEN:
+                    wait_mins = (datetime.combine(date.today(), ORBConfig.MARKET_OPEN) -
+                                 datetime.combine(date.today(), current_time)).seconds // 60
+                    logger.info(f"Market opens in {wait_mins} minutes...")
+                    self.ib.sleep(min(wait_mins * 60, 60))
+                    continue
+
+                # OR forming (9:30 - 9:45)
+                if current_time < ORBConfig.OR_END:
+                    logger.info(f"Opening range forming... ({current_time.strftime('%H:%M')})")
+                    self.ib.sleep(30)
+                    continue
+
+                # Compute all opening ranges (once)
+                if not or_computed:
+                    self.compute_all_opening_ranges(tickers, contracts)
+                    or_computed = True
+                    if not self.ticker_state:
+                        logger.warning("No tickers passed OR computation. Sitting out today.")
+                        break
+
+                # After market close
+                if current_time >= ORBConfig.MARKET_CLOSE:
+                    logger.info("Market closed.")
+                    break
+
+                # Force close at 3:55 PM
+                if current_time >= ORBConfig.FORCE_EXIT:
+                    self.force_close_all()
+                    self.ib.sleep(60)
+                    continue
+
+                # No new entries after 2 PM
+                if current_time >= ORBConfig.LAST_ENTRY:
+                    # Just monitor existing positions
+                    if self.positions:
+                        self.check_all_positions()
+                    self.ib.sleep(30)
+                    continue
+
+                # Scan for breakouts if we have capacity
+                if self.trades_today < self.max_trades:
+                    candidates = self.scan_for_breakouts()
+                    slots_available = self.max_trades - self.trades_today
+
+                    for candidate in candidates[:slots_available]:
+                        logger.info(f"BREAKOUT: {candidate['ticker']} "
+                                    f"{candidate['direction'].upper()} "
+                                    f"@ ${candidate['price']:.2f} "
+                                    f"(vol {candidate['vol_ratio']:.1f}x)")
+                        self.enter_trade(candidate)
+
+                # Monitor existing positions
+                if self.positions:
+                    self.check_all_positions()
+
+                self.ib.sleep(ORBConfig.CHECK_INTERVAL)
+
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+            if self.positions:
+                logger.warning(f"You have {len(self.positions)} open positions! "
+                               "Close them manually in TWS.")
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            if self.positions:
+                logger.warning(f"You may have {len(self.positions)} open positions! Check TWS.")
+        finally:
+            # Daily summary
+            logger.info(f"Daily summary: {self.trades_today} trades, "
+                        f"P&L: {self.daily_pnl:+.2f}%")
+            try:
+                from live.alerts import send_discord
+                if fmt_day_complete:
+                    msg = fmt_day_complete(
+                        "Multi-ORB",
+                        traded=self.trades_today > 0,
+                        ticker=None,
+                        pnl_pct=self.daily_pnl,
+                        extra={"Trades": f"{self.trades_today}/{self.max_trades}",
+                               "Positions": ", ".join(self.positions.keys()) or "none"},
+                    )
+                else:
+                    msg = (f"Multi-ORB complete | {self.trades_today} trades | "
+                           f"P&L: {self.daily_pnl:+.2f}%")
+                send_discord(msg)
+            except Exception:
+                pass
+
+            self.disconnect()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1002,15 +1632,25 @@ def run_orb(args=None):
     import argparse
     parser = argparse.ArgumentParser(description="ORB Day Trader")
     parser.add_argument("--live", action="store_true", help="Use live account (default: paper)")
-    parser.add_argument("--size", type=float, default=500, help="Position size in USD")
+    parser.add_argument("--size", type=float, default=950, help="Position size in USD")
+    parser.add_argument("--single", action="store_true",
+                        help="Single-ticker mode (QQQ only, legacy)")
+    parser.add_argument("--max-trades", type=int, default=2,
+                        help="Max trades per day (default: 2)")
     if args is not None:
         parsed = parser.parse_args(args)
     else:
-        # Called from main.py: sys.argv = ['main.py', 'orb', '--live', ...]
         parsed = parser.parse_args(sys.argv[2:] if len(sys.argv) > 2 else [])
 
-    trader = ORBTrader(paper=not parsed.live, position_size=parsed.size)
-    trader.run()
+    if parsed.single:
+        # Legacy single-ticker mode
+        trader = ORBTrader(paper=not parsed.live, position_size=parsed.size)
+        trader.run()
+    else:
+        # Multi-ticker mode (default)
+        trader = MultiORBTrader(paper=not parsed.live, position_size=parsed.size,
+                                max_trades=parsed.max_trades)
+        trader.run()
 
 
 if __name__ == "__main__":

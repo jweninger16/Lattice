@@ -673,7 +673,7 @@ function Dash() {
     return () => { if (ws.current) ws.current.close(); };
   }, []);
 
-  const startBot = async () => { try { await api("/bot/control", { method: "POST", body: { action: "start", live: true } }); sB(true); } catch (e) { alert("Failed: " + e.message); } };
+  const startBot = async () => { try { const s = await api("/settings"); await api("/bot/control", { method: "POST", body: { action: "start", live: true, strategy: s.bot_strategy || "orb" } }); sB(true); } catch (e) { alert("Failed: " + e.message); } };
   const stopBot = async () => { try { await api("/bot/control", { method: "POST", body: { action: "stop" } }); sB(false); } catch (e) { alert("Failed: " + e.message); } };
 
   const W = acct?.wins || 0, L = acct?.losses || 0, tp = acct?.total_pnl_usd || 0, bal = acct?.balance || 0;
