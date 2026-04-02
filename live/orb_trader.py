@@ -13,11 +13,11 @@ Strategy:
   - Volume confirmation: only enter if breakout bar volume > OR avg volume
   - Rank all breakouts by vol_ratio, take top MAX_TRADES_PER_DAY
   - Exit at: 1.5x OR range target, 1.0x OR range stop, or 3:55 PM
-  - $950 per position, 2 trades/day = $1,900 max exposure
-  - Sized for $1,945 settled capital (no unsettled fund usage)
+  - $1,900 per position, 1 trade/day (best signal by vol_ratio)
+  - Sized for $1,944 settled capital (no unsettled fund usage)
 
-Research results (85 stocks, 1-min bars, realistic costs):
-  2-min OR: 411 trades, 65.2% WR, 1.99 PF, +111.54% total, -5.87% max DD
+Research results ($5.50 RT cost, 85 stocks):
+  $1,900 x 1/day: 80% WR, 13.53 PF, +$9.36/day, -$7.88 max DD
 
 Legacy single-ticker mode (QQQ only) available via --single flag.
 
@@ -102,13 +102,13 @@ class ORBConfig:
     # Research: 85 stocks, 1802 trades, 63.8% WR / 2.29 PF with costs.
     REQUIRE_VOLUME_CONFIRMATION = True
 
-    # Risk — sized for $1,945 settled capital, no unsettled fund usage
-    # 2 x $950 = $1,900 exposure (leaves $45 buffer)
-    # Commission drag at $950: 0.145% round-trip (acceptable)
-    # Sweep results at 2/day: 61.9% WR, 2.48 PF, -2.81% max DD
-    POSITION_SIZE_USD = 950
+    # Risk — full capital on one high-conviction trade
+    # $1,900 x 1/day: 80% WR, 13.53 PF, $9.36/day in backtest ($5.50 cost)
+    # Commission drag at $1,900: 0.11% (vs 0.21% at $950)
+    # One best signal per day via vol_ratio ranking
+    POSITION_SIZE_USD = 1900
     MAX_DAILY_LOSS_PCT = 1.0  # Stop trading if down 1% for the day
-    MAX_TRADES_PER_DAY = 2
+    MAX_TRADES_PER_DAY = 1
 
     # Timing (Eastern Time)
     MARKET_OPEN = dtime(9, 30)
@@ -1734,11 +1734,11 @@ def run_orb(args=None):
     import argparse
     parser = argparse.ArgumentParser(description="ORB Day Trader")
     parser.add_argument("--live", action="store_true", help="Use live account (default: paper)")
-    parser.add_argument("--size", type=float, default=950, help="Position size in USD")
+    parser.add_argument("--size", type=float, default=1900, help="Position size in USD")
     parser.add_argument("--single", action="store_true",
                         help="Single-ticker mode (QQQ only, legacy)")
-    parser.add_argument("--max-trades", type=int, default=2,
-                        help="Max trades per day (default: 2)")
+    parser.add_argument("--max-trades", type=int, default=1,
+                        help="Max trades per day (default: 1)")
     if args is not None:
         parsed = parser.parse_args(args)
     else:
