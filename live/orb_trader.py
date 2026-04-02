@@ -1071,6 +1071,101 @@ class MultiORBTrader:
         self.daily_pnl = 0
         self.today = None
 
+        # Account tracking (shared with Lattice dashboard)
+        self.ACCOUNT_FILE = Path("live/gap_scanner_account.json")
+        self.account = self._load_account()
+
+    def _load_account(self):
+        """Load or initialize account state for Lattice."""
+        import json
+        if self.ACCOUNT_FILE.exists():
+            try:
+                with open(self.ACCOUNT_FILE) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {
+            "starting_capital": 2000.0,
+            "balance": 2000.0,
+            "peak_balance": 2000.0,
+            "total_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "total_pnl_usd": 0.0,
+            "total_pnl_pct": 0.0,
+            "max_drawdown_pct": 0.0,
+            "trade_history": [],
+        }
+
+    def _save_account(self):
+        """Save account state so Lattice can read it."""
+        import json
+        self.ACCOUNT_FILE.parent.mkdir(exist_ok=True)
+        with open(self.ACCOUNT_FILE, "w") as f:
+            json.dump(self.account, f, indent=2, default=str)
+
+    def _sync_balance(self):
+        """Sync real balance from IBKR."""
+        if self.ib and self.ib.isConnected():
+            try:
+                self.ib.sleep(1)
+                for item in self.ib.accountSummary():
+                    if item.tag == "NetLiquidation" and item.currency == "USD":
+                        self.account["balance"] = float(item.value)
+                        return
+            except Exception:
+                pass
+
+    def record_trade(self, ticker, direction, entry, exit_price, qty, reason):
+        """Record a completed trade to account JSON (read by Lattice)."""
+        if direction == "long":
+            pnl_pct = (exit_price - entry) / entry * 100
+            pnl_usd = (exit_price - entry) * qty
+        else:
+            pnl_pct = (entry - exit_price) / entry * 100
+            pnl_usd = (entry - exit_price) * qty
+
+        self.account["total_trades"] += 1
+        if pnl_pct > 0:
+            self.account["wins"] += 1
+        else:
+            self.account["losses"] += 1
+
+        self._sync_balance()
+        if self.account["balance"] == 0:
+            self.account["balance"] += pnl_usd
+
+        self.account["total_pnl_usd"] = (
+            self.account["balance"] - self.account["starting_capital"])
+        self.account["total_pnl_pct"] = (
+            (self.account["balance"] / self.account["starting_capital"]) - 1) * 100
+
+        if self.account["balance"] > self.account["peak_balance"]:
+            self.account["peak_balance"] = self.account["balance"]
+        dd = ((self.account["balance"] - self.account["peak_balance"]) /
+              self.account["peak_balance"] * 100)
+        if dd < self.account["max_drawdown_pct"]:
+            self.account["max_drawdown_pct"] = dd
+
+        self.account["trade_history"].append({
+            "date": str(date.today()),
+            "ticker": ticker,
+            "direction": direction,
+            "entry": round(entry, 2),
+            "exit": round(exit_price, 2),
+            "qty": qty,
+            "pnl_pct": round(pnl_pct, 2),
+            "pnl_usd": round(pnl_usd, 2),
+            "reason": reason,
+            "balance_after": round(self.account["balance"], 2),
+        })
+        if len(self.account["trade_history"]) > 100:
+            self.account["trade_history"] = self.account["trade_history"][-100:]
+
+        self._save_account()
+        logger.info(f"Trade recorded: {ticker} {reason} {pnl_pct:+.2f}% "
+                    f"(${pnl_usd:+.2f}) | Balance: ${self.account['balance']:,.2f}")
+
     def connect(self):
         self.ib = IB()
         mode = "PAPER" if self.paper else "LIVE"
@@ -1417,6 +1512,8 @@ class MultiORBTrader:
 
                 logger.info(f"{ticker}: {reason} filled @ ~${exit_price:.2f} | "
                             f"P&L: {pnl:+.2f}%")
+                self.record_trade(ticker, pos["direction"], entry, exit_price,
+                                  pos["qty"], reason)
                 try:
                     from live.alerts import send_discord
                     if fmt_exit:
@@ -1473,6 +1570,7 @@ class MultiORBTrader:
                     pnl = (pos["entry"] - price) / pos["entry"] * 100
                 self.daily_pnl += pnl
                 logger.info(f"{ticker}: EOD close @ ${price:.2f} | P&L: {pnl:+.2f}%")
+                self.record_trade(ticker, direction, pos["entry"], price, qty, "eod")
 
                 try:
                     from live.alerts import send_discord
