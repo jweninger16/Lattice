@@ -560,7 +560,7 @@ class ORBTrader:
 
         if direction == "long":
             entry_price = self.or_high
-            target_price = round(entry_price + self.or_range * ORBConfig.TARGET_MULT, 2)
+            target_price = round(entry_price + self.or_range * ORBConfig.TRAIL_MULT, 2)
             stop_price = round(entry_price - self.or_range * ORBConfig.STOP_MULT, 2)
 
             # Market buy
@@ -598,7 +598,7 @@ class ORBTrader:
 
         else:  # short
             entry_price = self.or_low
-            target_price = round(entry_price - self.or_range * ORBConfig.TARGET_MULT, 2)
+            target_price = round(entry_price - self.or_range * ORBConfig.TRAIL_MULT, 2)
             stop_price = round(entry_price + self.or_range * ORBConfig.STOP_MULT, 2)
 
             # Market sell (short)
@@ -830,7 +830,7 @@ class ORBTrader:
         logger.info(f"  Ticker: {ORBConfig.TICKER}")
         logger.info(f"  Position size: ${self.position_size:,.0f}")
         logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
-                    f"{ORBConfig.TARGET_MULT}:{ORBConfig.STOP_MULT} R:R, "
+                    f"{ORBConfig.TRAIL_MULT}x trail, {ORBConfig.STOP_MULT}x initial stop, "
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
         logger.info(f"  Volume confirmation: "
                     f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
@@ -1595,7 +1595,7 @@ class MultiORBTrader:
         logger.info(f"  Max trades/day: {self.max_trades}")
         logger.info(f"  Max daily exposure: ${self.position_size * self.max_trades:,.0f}")
         logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
-                    f"{ORBConfig.TARGET_MULT}:{ORBConfig.STOP_MULT} R:R, "
+                    f"{ORBConfig.TRAIL_MULT}x trail, {ORBConfig.STOP_MULT}x initial stop, "
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
         logger.info(f"  Volume confirmation: "
                     f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
