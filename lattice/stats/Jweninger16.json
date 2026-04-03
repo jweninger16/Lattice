@@ -1,40 +1,16 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-04-02 08:22:30",
-  "balance": 1948.32,
+  "updated": "2026-04-03 07:59:19",
+  "balance": 1944.48,
   "starting_capital": 2000.0,
-  "wins": 4,
+  "wins": 6,
   "losses": 5,
-  "total_trades": 10,
-  "total_pnl_usd": -51.680000000000064,
+  "total_trades": 12,
+  "total_pnl_usd": -55.51999999999998,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -2.843408100372006,
+  "max_drawdown_pct": -3.034896825475974,
   "recent_trades": [
-    {
-      "date": "2026-03-20",
-      "ticker": "FDX",
-      "direction": "long",
-      "entry": 360.99,
-      "exit": 358.87,
-      "qty": 2,
-      "pnl_pct": -0.59,
-      "pnl_usd": -4.24,
-      "reason": "eod",
-      "balance_after": 1995.76
-    },
-    {
-      "date": "2026-03-23",
-      "ticker": "UAL",
-      "direction": "long",
-      "entry": 93.93,
-      "exit": 93.94,
-      "qty": 10,
-      "pnl_pct": 0.01,
-      "pnl_usd": 0.1,
-      "reason": "eod",
-      "balance_after": 1995.86
-    },
     {
       "date": "2026-03-24",
       "ticker": "MPC",
@@ -130,6 +106,30 @@
       "pnl_usd": -1.87,
       "reason": "trail",
       "balance_after": 1948.32
+    },
+    {
+      "date": "2026-04-02",
+      "ticker": "PFE",
+      "direction": "long",
+      "entry": 28.5,
+      "exit": 28.53,
+      "qty": 33,
+      "pnl_pct": 0.11,
+      "pnl_usd": 0.99,
+      "reason": "trail",
+      "balance_after": 1949.4
+    },
+    {
+      "date": "2026-04-02",
+      "ticker": "TGT",
+      "direction": "long",
+      "entry": 120.3,
+      "exit": 120.55,
+      "qty": 7,
+      "pnl_pct": 0.21,
+      "pnl_usd": 1.75,
+      "reason": "trail",
+      "balance_after": 1944.48
     }
   ],
   "equity_curve": [
@@ -176,6 +176,14 @@
     {
       "date": "2026-03-31",
       "balance": 1948.32
+    },
+    {
+      "date": "2026-04-02",
+      "balance": 1949.4
+    },
+    {
+      "date": "2026-04-02",
+      "balance": 1944.48
     }
   ]
 }
