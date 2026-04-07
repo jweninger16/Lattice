@@ -13,11 +13,11 @@ Strategy:
   - Volume confirmation: only enter if breakout bar volume > OR avg volume
   - Rank all breakouts by vol_ratio, take top MAX_TRADES_PER_DAY
   - Exit at: 1.5x OR range target, 1.0x OR range stop, or 3:55 PM
-  - $1,900 per position, 2 trades/day (top signals by vol_ratio)
+  - $1,900 per position, 1 trade/day (best signal by vol_ratio)
   - Sized for $1,944 settled capital (no unsettled fund usage)
 
 Research results ($5.50 RT cost, 85 stocks):
-  $1,900 x 2/day: top 2 signals by vol_ratio (was 1/day)
+  $1,900 x 1/day: 80% WR, 13.53 PF, +$9.36/day, -$7.88 max DD
 
 Legacy single-ticker mode (QQQ only) available via --single flag.
 
@@ -108,7 +108,7 @@ class ORBConfig:
     # One best signal per day via vol_ratio ranking
     POSITION_SIZE_USD = 1900
     MAX_DAILY_LOSS_PCT = 1.0  # Stop trading if down 1% for the day
-    MAX_TRADES_PER_DAY = 2
+    MAX_TRADES_PER_DAY = 1
 
     # Timing (Eastern Time)
     MARKET_OPEN = dtime(9, 30)
