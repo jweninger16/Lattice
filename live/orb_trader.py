@@ -46,6 +46,13 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, ".")
 
+# Pre-market intelligence (optional — system works without it)
+try:
+    from data.market_intel import MarketIntelCollector, PreMarketBrief
+except ImportError:
+    MarketIntelCollector = None
+    PreMarketBrief = None
+
 # Python 3.14 fix
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -1136,6 +1143,10 @@ class MultiORBTrader:
         self.daily_pnl = 0
         self.today = None
 
+        # Pre-market intelligence
+        self.premarket_brief = None
+        self.intel_collector = MarketIntelCollector() if MarketIntelCollector else None
+
         # Account tracking (shared with Lattice dashboard)
         self.ACCOUNT_FILE = Path("live/gap_scanner_account.json")
         self.account = self._load_account()
@@ -1463,8 +1474,35 @@ class MultiORBTrader:
             if len(candidates) % 30 == 0 and len(candidates) > 0:
                 self.ib.sleep(1)
 
-        # Sort by vol_ratio descending — highest conviction first
-        candidates.sort(key=lambda c: c["vol_ratio"], reverse=True)
+        # ── Apply pre-market intelligence scoring ─────────────────
+        if self.premarket_brief and self.premarket_brief.gap_rankings is not None:
+            rankings = self.premarket_brief.gap_rankings
+            skip_set = self.premarket_brief.skip_tickers or set()
+
+            scored = []
+            for c in candidates:
+                ticker = c["ticker"]
+                # Skip earnings-day tickers
+                if ticker in skip_set:
+                    logger.info(f"  {ticker}: skipped (earnings/skip list)")
+                    continue
+
+                # Get intel score
+                match = rankings[rankings["ticker"] == ticker]
+                intel = float(match.iloc[0]["intel_score"]) if not match.empty else 0.0
+
+                # Composite: 70% vol_ratio + 30% intel
+                vol_norm = min(c["vol_ratio"] / 5.0, 1.0)
+                c["intel_score"] = intel
+                c["composite_score"] = 0.7 * vol_norm + 0.3 * intel
+                scored.append(c)
+
+            candidates = scored
+            candidates.sort(key=lambda c: c.get("composite_score", 0), reverse=True)
+        else:
+            # Fallback: pure vol_ratio ranking
+            candidates.sort(key=lambda c: c["vol_ratio"], reverse=True)
+
         return candidates
 
     # ── Order Execution ───────────────────────────────────────────────
@@ -1743,11 +1781,25 @@ class MultiORBTrader:
                 now = self.get_current_time_et()
                 current_time = now.time()
 
-                # Before market open
+                # Before market open — run pre-market intelligence
                 if current_time < ORBConfig.MARKET_OPEN:
                     wait_mins = (datetime.combine(date.today(), ORBConfig.MARKET_OPEN) -
                                  datetime.combine(date.today(), current_time)).seconds // 60
-                    logger.info(f"Market opens in {wait_mins} minutes...")
+
+                    # Run pre-market scan between 9:00 and 9:25 (once per day)
+                    if (self.premarket_brief is None
+                            and self.intel_collector is not None
+                            and current_time >= dtime(9, 0)):
+                        logger.info("Running pre-market intelligence scan...")
+                        try:
+                            self.premarket_brief = self.intel_collector.collect(tickers)
+                            logger.info(f"Pre-market brief ready: {self.premarket_brief.summary()}")
+                        except Exception as e:
+                            logger.warning(f"Pre-market intel failed (non-fatal): {e}")
+                            self.premarket_brief = None
+                    else:
+                        logger.info(f"Market opens in {wait_mins} minutes...")
+
                     self.ib.sleep(min(wait_mins * 60, 60))
                     continue
 
@@ -1759,7 +1811,17 @@ class MultiORBTrader:
 
                 # Compute all opening ranges (once)
                 if not or_computed:
-                    self.compute_all_opening_ranges(tickers, contracts)
+                    # Use pre-market watchlist if available (narrows 85 -> ~30 tickers)
+                    scan_tickers = tickers
+                    scan_contracts = contracts
+                    if (self.premarket_brief
+                            and self.premarket_brief.watchlist):
+                        wl = self.premarket_brief.watchlist
+                        scan_tickers = [t for t in wl if t in contracts]
+                        scan_contracts = {t: contracts[t] for t in scan_tickers}
+                        logger.info(f"Using pre-market watchlist: {len(scan_tickers)} tickers "
+                                    f"(narrowed from {len(tickers)})")
+                    self.compute_all_opening_ranges(scan_tickers, scan_contracts)
                     or_computed = True
                     if not self.ticker_state:
                         logger.warning("No tickers passed OR computation. Sitting out today.")
