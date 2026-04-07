@@ -3,9 +3,10 @@ research/orb_entry_time_backtest.py
 -------------------------------------
 Tests different OR durations using 1-minute bars to find optimal entry time.
 
-Compares: 2min (9:32), 5min (9:35), 10min (9:40), 15min (9:45)
-All with volume confirmation, 1.5:1 R:R, 0.5% gap filter.
-Uses 1-minute bars from yfinance (30 day max history).
+Compares: 2min (9:32), 5min (9:35), 10min (9:40), 15min (9:45), 20min, 30min
+Uses the CURRENT live exit method: 0.3x trailing stop + 1.0x initial stop.
+Multi-ticker: ranks candidates by vol_ratio, takes top N per day.
+Long-only, volume confirmed, 0.5% gap filter, with costs ($5.50 RT on $1,900).
 
 Usage:
     python research/orb_entry_time_backtest.py
@@ -23,6 +24,15 @@ sys.path.insert(0, ".")
 
 CACHE_DIR = Path("data/intraday_cache")
 UNIVERSE_PATH = Path("data/orb_universe.csv")
+
+# ── Match live config ─────────────────────────────────────────────────
+POSITION_SIZE_USD = 1900.0
+COMMISSION_RT_USD = 5.50       # Round-trip commission + fees
+SLIPPAGE_PCT = 0.02            # Per side
+STOP_MULT = 1.0                # Initial stop = 1.0x OR range below entry
+TRAIL_MULT = 0.3               # Trailing stop distance = 0.3x OR range
+MAX_GAP_PCT = 0.5              # Skip if gap > 0.5%
+MAX_TRADES_PER_DAY_OPTIONS = [1, 2, 3]  # Test 1, 2, and 3 trades/day
 
 
 def collect_1min_data(tickers):
@@ -90,18 +100,24 @@ def prepare(df):
     return df
 
 
-def find_exit(bars, entry, target, stop, direction):
+def exit_trailing(bars, entry, or_range, trail_mult=TRAIL_MULT, stop_mult=STOP_MULT):
+    """
+    Trailing stop exit matching the live ORB system.
+    Initial stop at stop_mult * OR range below entry.
+    Trail distance = trail_mult * OR range, ratchets up with price.
+    """
+    stop = entry - or_range * stop_mult
+    trail_dist = or_range * trail_mult
+    highest = entry
+
     for _, bar in bars.iterrows():
-        if direction == "long":
-            if bar["low"] <= stop:
-                return stop, "stop"
-            if bar["high"] >= target:
-                return target, "target"
-        else:
-            if bar["high"] >= stop:
-                return stop, "stop"
-            if bar["low"] <= target:
-                return target, "target"
+        if bar["low"] <= stop:
+            return stop, "stop"
+        if bar["high"] > highest:
+            highest = bar["high"]
+            trail_stop = highest - trail_dist
+            if trail_stop > stop:
+                stop = trail_stop
         if bar["time"] >= dtime(15, 55):
             return bar["close"], "eod"
     if len(bars) > 0:
@@ -109,100 +125,122 @@ def find_exit(bars, entry, target, stop, direction):
     return entry, "flat"
 
 
-def backtest_or_duration(df, or_minutes=15, require_volume=True,
-                          max_gap_pct=0.5, slippage_pct=0.02,
-                          commission_usd=1.0, position_size_usd=950.0):
+def find_candidates_for_day(day_df, or_end_time, or_minutes, or_high, or_low,
+                             or_range, or_avg_volume):
     """
-    Backtest ORB with a specific OR duration in minutes using 1-min bars.
-    or_minutes=2 means OR forms from 9:30-9:32 (first 2 bars).
+    Scan post-OR bars for volume-confirmed long breakouts.
+    Returns list of candidate dicts with vol_ratio and entry info.
     """
-    target_mult = 1.5
-    stop_mult = 1.0
-    all_days = sorted(df["date"].unique())
-    trades = []
-    cost_pct = (slippage_pct * 2) + (commission_usd / position_size_usd * 100)
+    remaining = day_df[day_df["time"] >= or_end_time]
+    candidates = []
+
+    for _, bar in remaining.iterrows():
+        if bar["volume"] < or_avg_volume:
+            continue
+        vol_ratio = bar["volume"] / or_avg_volume if or_avg_volume > 0 else 1.0
+
+        if bar["high"] > or_high:
+            future = remaining[remaining["timestamp"] >= bar["timestamp"]]
+            exit_price, reason = exit_trailing(future, or_high, or_range)
+            candidates.append({
+                "entry": or_high,
+                "exit": exit_price,
+                "reason": reason,
+                "vol_ratio": vol_ratio,
+                "entry_time": bar["time"],
+                "or_range_pct": or_range / ((or_high + or_low) / 2) * 100,
+            })
+            break  # One candidate per ticker per day
+
+    return candidates
+
+
+def backtest_or_duration_multi(all_ticker_data, or_minutes=2, max_trades=1):
+    """
+    Multi-ticker ORB backtest with trailing stop exit.
+    For each day: collect breakout candidates across all tickers,
+    rank by vol_ratio, take top max_trades.
+    """
+    cost_pct = (SLIPPAGE_PCT * 2) + (COMMISSION_RT_USD / POSITION_SIZE_USD * 100)
 
     total_mins = 9 * 60 + 30 + or_minutes
     or_end_time = dtime(total_mins // 60, total_mins % 60)
 
-    for day, day_df in df.groupby("date"):
-        mkt = day_df[(day_df["time"] >= dtime(9, 30)) & (day_df["time"] <= dtime(15, 55))]
-        if len(mkt) < or_minutes + 10:
-            continue
+    # Gather all trading dates across all tickers
+    all_dates = set()
+    for ticker, df in all_ticker_data.items():
+        all_dates.update(df["date"].unique())
+    all_dates = sorted(all_dates)
 
-        # OR bars = first or_minutes 1-minute bars
-        or_data = mkt[mkt["time"] < or_end_time]
-        if len(or_data) < or_minutes:
-            continue
+    # Build prev_close lookup per ticker
+    prev_closes = {}
+    for ticker, df in all_ticker_data.items():
+        daily = df.groupby("date").agg(
+            first_open=("open", "first"),
+            last_close=("close", "last"),
+        )
+        prev_closes[ticker] = daily
 
-        or_high = or_data["high"].max()
-        or_low = or_data["low"].min()
-        or_range = or_high - or_low
-        or_mid = (or_high + or_low) / 2
-        if or_range <= 0 or or_mid <= 0:
-            continue
+    trades = []
 
-        or_avg_volume = or_data["volume"].mean()
+    for day in all_dates:
+        day_candidates = []
 
-        # Gap filter
-        day_idx = list(all_days).index(day) if day in all_days else -1
-        if day_idx > 0 and max_gap_pct is not None:
-            prev_day = all_days[day_idx - 1]
-            prev_data = df[df["date"] == prev_day]
-            if len(prev_data) > 0:
-                prev_close = prev_data.iloc[-1]["close"]
-                gap = abs(mkt.iloc[0]["open"] / prev_close - 1) * 100
-                if gap > max_gap_pct:
-                    continue
-
-        target_pts = or_range * target_mult
-        stop_pts = or_range * stop_mult
-        remaining = mkt[mkt["time"] >= or_end_time]
-        trade_taken = False
-
-        for _, bar in remaining.iterrows():
-            if trade_taken:
-                break
-
-            if require_volume and bar["volume"] < or_avg_volume:
+        for ticker, df in all_ticker_data.items():
+            day_df = df[df["date"] == day]
+            mkt = day_df[(day_df["time"] >= dtime(9, 30)) & (day_df["time"] <= dtime(15, 55))]
+            if len(mkt) < or_minutes + 10:
                 continue
 
-            vol_ratio = bar["volume"] / or_avg_volume if or_avg_volume > 0 else 1.0
+            # Compute OR
+            or_data = mkt[mkt["time"] < or_end_time]
+            if len(or_data) < or_minutes:
+                continue
 
-            if bar["high"] > or_high:
-                entry = or_high
-                target = entry + target_pts
-                stop = entry - stop_pts
-                future = remaining[remaining["timestamp"] >= bar["timestamp"]]
-                exit_price, reason = find_exit(future, entry, target, stop, "long")
-                pnl_pct = (exit_price - entry) / entry * 100 - cost_pct
-                trades.append({"date": day, "direction": "long", "entry": entry,
-                               "exit": exit_price, "pnl_pct": pnl_pct, "reason": reason,
-                               "or_range_pct": or_range / or_mid * 100,
-                               "vol_ratio": vol_ratio,
-                               "entry_time": bar["time"]})
-                trade_taken = True
+            or_high = or_data["high"].max()
+            or_low = or_data["low"].min()
+            or_range = or_high - or_low
+            or_mid = (or_high + or_low) / 2
+            if or_range <= 0 or or_mid <= 0:
+                continue
 
-            elif bar["low"] < or_low:
-                entry = or_low
-                target = entry - target_pts
-                stop = entry + stop_pts
-                future = remaining[remaining["timestamp"] >= bar["timestamp"]]
-                exit_price, reason = find_exit(future, entry, target, stop, "short")
-                pnl_pct = (entry - exit_price) / entry * 100 - cost_pct
-                trades.append({"date": day, "direction": "short", "entry": entry,
-                               "exit": exit_price, "pnl_pct": pnl_pct, "reason": reason,
-                               "or_range_pct": or_range / or_mid * 100,
-                               "vol_ratio": vol_ratio,
-                               "entry_time": bar["time"]})
-                trade_taken = True
+            or_avg_volume = or_data["volume"].mean()
+
+            # Gap filter
+            if ticker in prev_closes and MAX_GAP_PCT is not None:
+                pc = prev_closes[ticker]
+                day_dates = sorted(pc.index)
+                day_idx = day_dates.index(day) if day in day_dates else -1
+                if day_idx > 0:
+                    prev_close = pc.loc[day_dates[day_idx - 1], "last_close"]
+                    gap = abs(mkt.iloc[0]["open"] / prev_close - 1) * 100
+                    if gap > MAX_GAP_PCT:
+                        continue
+
+            cands = find_candidates_for_day(
+                mkt, or_end_time, or_minutes, or_high, or_low, or_range, or_avg_volume
+            )
+            for c in cands:
+                c["ticker"] = ticker
+                c["date"] = day
+                day_candidates.append(c)
+
+        # Rank by vol_ratio, take top max_trades
+        day_candidates.sort(key=lambda x: x["vol_ratio"], reverse=True)
+        for c in day_candidates[:max_trades]:
+            pnl_pct = (c["exit"] - c["entry"]) / c["entry"] * 100 - cost_pct
+            pnl_usd = pnl_pct / 100 * POSITION_SIZE_USD
+            c["pnl_pct"] = pnl_pct
+            c["pnl_usd"] = pnl_usd
+            c["direction"] = "long"
+            trades.append(c)
 
     return pd.DataFrame(trades)
 
 
-def stats_line(trades, label):
+def stats_line(trades, label, show_usd=True):
     if trades.empty:
-        print(f"  {label:<45} -- no trades --")
+        print(f"  {label:<55} -- no trades --")
         return
     n = len(trades)
     wins = trades[trades["pnl_pct"] > 0]
@@ -219,19 +257,27 @@ def stats_line(trades, label):
     # Median OR range
     med_or = trades["or_range_pct"].median() if "or_range_pct" in trades.columns else 0
 
+    # Daily P&L
+    n_days = trades["date"].nunique() if "date" in trades.columns else 1
+    daily_usd = trades["pnl_usd"].sum() / n_days if "pnl_usd" in trades.columns else 0
+
     # Exit breakdown
     reasons = trades["reason"].value_counts().to_dict()
     r_str = " ".join(f"{r[0]}:{c}" for r, c in reasons.items())
 
-    print(f"  {label:<45} {n:>5} tr  {wr:>5.1f}% WR  {pf:>5.2f} PF  "
+    usd_str = f"  ${daily_usd:>+6.2f}/day" if show_usd else ""
+    print(f"  {label:<55} {n:>5} tr  {wr:>5.1f}% WR  {pf:>5.2f} PF  "
           f"{total:>+8.2f}%  {avg:>+6.3f}% avg  {dd:>+6.2f}% DD  "
-          f"OR:{med_or:.2f}%  {r_str}")
+          f"OR:{med_or:.2f}%{usd_str}  {r_str}")
 
 
 if __name__ == "__main__":
-    print("\n" + "=" * 80)
-    print("  OR DURATION TEST (1-minute bars, volume confirmed, with costs)")
-    print("=" * 80)
+    print("\n" + "=" * 90)
+    print("  OR DURATION TEST — trailing stop exit (0.3x trail, 1.0x stop)")
+    print("  Multi-ticker ranked by vol_ratio | long-only | volume confirmed | with costs")
+    print(f"  Position: ${POSITION_SIZE_USD:,.0f} | Commission: ${COMMISSION_RT_USD:.2f} RT | "
+          f"Slippage: {SLIPPAGE_PCT:.2f}%/side")
+    print("=" * 90)
 
     # Load universe
     if not UNIVERSE_PATH.exists():
@@ -243,21 +289,10 @@ if __name__ == "__main__":
     # Download 1-min data
     collect_1min_data(tickers)
 
-    # Test these OR durations
-    or_configs = [
-        (2,  "9:32 AM (2-min OR)"),
-        (5,  "9:35 AM (5-min OR)"),
-        (10, "9:40 AM (10-min OR)"),
-        (15, "9:45 AM (15-min OR)"),
-        (20, "9:50 AM (20-min OR)"),
-        (30, "10:00 AM (30-min OR)"),
-    ]
-
-    # Aggregate trades across all tickers for each duration
-    agg = {mins: [] for mins, _ in or_configs}
-
-    print(f"\n  Running backtests across {len(tickers)} tickers...")
-    for ticker in tqdm(tickers, desc="  Backtesting"):
+    # Load and prepare all ticker data
+    print(f"\n  Loading data for {len(tickers)} tickers...")
+    all_data = {}
+    for ticker in tqdm(tickers, desc="  Loading"):
         df = load_1min(ticker)
         if df.empty:
             continue
@@ -267,67 +302,114 @@ if __name__ == "__main__":
             continue
         if df["date"].nunique() < 5:
             continue
+        all_data[ticker] = df
+
+    print(f"  Loaded {len(all_data)} tickers with sufficient data")
+
+    # Test these OR durations
+    or_configs = [
+        (2,  "2-min OR (9:32)"),
+        (5,  "5-min OR (9:35)"),
+        (10, "10-min OR (9:40)"),
+        (15, "15-min OR (9:45)"),
+        (20, "20-min OR (9:50)"),
+        (30, "30-min OR (10:00)"),
+    ]
+
+    # ── Run all combinations ──────────────────────────────────────────
+    for max_trades in MAX_TRADES_PER_DAY_OPTIONS:
+        print(f"\n{'='*90}")
+        print(f"  MAX {max_trades} TRADE{'S' if max_trades > 1 else ''}/DAY "
+              f"(top {max_trades} by vol_ratio)")
+        print(f"{'='*90}")
+        print(f"  {'Config':<55} {'Trades':>5}    {'WR':>5}    {'PF':>5}  "
+              f"{'Total':>8}  {'AvgTrd':>7}  {'MaxDD':>7}  {'OR%':>5}  {'$/day':>8}  Exits")
+        print(f"  {'-'*120}")
+
+        best_pf = 0
+        best_label = ""
 
         for mins, label in or_configs:
-            trades = backtest_or_duration(df, or_minutes=mins)
-            if not trades.empty:
-                trades["ticker"] = ticker
-                agg[mins].append(trades)
+            full_label = f"{label} | {max_trades}/day"
+            result = backtest_or_duration_multi(all_data, or_minutes=mins, max_trades=max_trades)
+            stats_line(result, full_label)
 
-    # Report
-    print(f"\n{'='*80}")
-    print(f"  RESULTS (all tickers pooled, with costs: 0.02%/side + $1 comm on $950)")
-    print(f"{'='*80}")
-    print(f"  {'Entry Time':<45} {'Trades':>5}    {'WR':>5}    {'PF':>5}  "
-          f"{'Total':>8}  {'AvgTrd':>7}  {'MaxDD':>7}  {'OR%':>5}  Exits")
-    print(f"  {'-'*110}")
+            if not result.empty:
+                wins = result[result["pnl_pct"] > 0]
+                losses = result[result["pnl_pct"] <= 0]
+                gw = wins["pnl_pct"].sum() if len(wins) else 0
+                gl = abs(losses["pnl_pct"].sum()) if len(losses) else 0.001
+                pf = gw / gl
+                if pf > best_pf:
+                    best_pf = pf
+                    best_label = full_label
 
-    all_results = {}
-    for mins, label in or_configs:
-        if agg[mins]:
-            pooled = pd.concat(agg[mins]).reset_index(drop=True)
-        else:
-            pooled = pd.DataFrame()
-        all_results[label] = pooled
-        stats_line(pooled, label)
+        print(f"\n  >>> Best PF: {best_label} ({best_pf:.2f})")
 
-    # Detailed comparison of top 2
-    print(f"\n{'='*80}")
-    print(f"  DETAIL: Entry time breakdown")
-    print(f"{'='*80}")
+    # ── Detailed breakdown for top configs ────────────────────────────
+    print(f"\n{'='*90}")
+    print(f"  DETAIL: Per-ticker breakdown for 2-min OR (1/day and 2/day)")
+    print(f"{'='*90}")
 
-    for mins, label in or_configs:
-        pooled = all_results.get(label, pd.DataFrame())
-        if pooled.empty or len(pooled) < 10:
+    for max_trades in [1, 2]:
+        result = backtest_or_duration_multi(all_data, or_minutes=2, max_trades=max_trades)
+        if result.empty:
             continue
 
-        # Median entry time
-        if "entry_time" in pooled.columns:
-            entry_times = pd.to_datetime(pooled["entry_time"].astype(str))
-            med_entry = entry_times.dt.strftime("%H:%M").mode().iloc[0] if len(entry_times) > 0 else "?"
+        print(f"\n  --- 2-min OR, {max_trades}/day ---")
 
-            before_11 = pooled[pd.to_datetime(pooled["entry_time"].astype(str)).dt.hour < 11]
-            after_11 = pooled[pd.to_datetime(pooled["entry_time"].astype(str)).dt.hour >= 11]
+        # Time-of-day analysis
+        if "entry_time" in result.columns:
+            entry_times = pd.to_datetime(result["entry_time"].astype(str))
+            before_11 = result[entry_times.dt.hour < 11]
+            after_11 = result[entry_times.dt.hour >= 11]
 
             b_wr = (before_11["pnl_pct"] > 0).mean() * 100 if len(before_11) > 0 else 0
             a_wr = (after_11["pnl_pct"] > 0).mean() * 100 if len(after_11) > 0 else 0
 
-            print(f"\n  {label}:")
             print(f"    Entries before 11AM: {len(before_11)} trades, {b_wr:.1f}% WR, "
-                  f"{before_11['pnl_pct'].mean():+.3f}% avg")
+                  f"{before_11['pnl_pct'].mean():+.3f}% avg, "
+                  f"${before_11['pnl_usd'].sum() / max(1, before_11['date'].nunique()):+.2f}/day")
             if len(after_11) > 0:
                 print(f"    Entries after 11AM:  {len(after_11)} trades, {a_wr:.1f}% WR, "
-                      f"{after_11['pnl_pct'].mean():+.3f}% avg")
+                      f"{after_11['pnl_pct'].mean():+.3f}% avg, "
+                      f"${after_11['pnl_usd'].sum() / max(1, after_11['date'].nunique()):+.2f}/day")
 
-        # Tickers with most trades
-        top_tickers = pooled.groupby("ticker").agg(
+        # Top tickers
+        top_tickers = result.groupby("ticker").agg(
             n=("pnl_pct", "count"),
             wr=("pnl_pct", lambda x: (x > 0).mean() * 100),
-            total=("pnl_pct", "sum"),
-        ).sort_values("total", ascending=False).head(5)
+            total_pct=("pnl_pct", "sum"),
+            total_usd=("pnl_usd", "sum"),
+        ).sort_values("total_usd", ascending=False).head(10)
 
-        print(f"    Top 5 tickers: ", end="")
-        parts = []
+        print(f"    Top 10 tickers:")
         for t, r in top_tickers.iterrows():
-            parts.append(f"{t}({r['n']:.0f}tr,{r['wr']:.0f}%WR,{r['total']:+.1f}%)")
-        print(", ".join(parts))
+            print(f"      {t:<6} {r['n']:>3} trades  {r['wr']:>5.1f}% WR  "
+                  f"{r['total_pct']:>+7.2f}%  ${r['total_usd']:>+7.2f}")
+
+    # ── Summary recommendation ────────────────────────────────────────
+    print(f"\n{'='*90}")
+    print(f"  SUMMARY: Compare 1/day vs 2/day across all OR durations")
+    print(f"{'='*90}")
+    print(f"  {'Config':<40} {'Trades':>5}  {'WR':>5}  {'PF':>5}  {'$/day':>8}  {'MaxDD':>7}")
+    print(f"  {'-'*80}")
+
+    for mins, label in or_configs:
+        for mt in [1, 2]:
+            result = backtest_or_duration_multi(all_data, or_minutes=mins, max_trades=mt)
+            if result.empty:
+                continue
+            n = len(result)
+            wr = (result["pnl_pct"] > 0).mean() * 100
+            wins = result[result["pnl_pct"] > 0]
+            losses = result[result["pnl_pct"] <= 0]
+            gw = wins["pnl_pct"].sum() if len(wins) else 0
+            gl = abs(losses["pnl_pct"].sum()) if len(losses) else 0.001
+            pf = gw / gl
+            n_days = result["date"].nunique()
+            daily = result["pnl_usd"].sum() / n_days
+            cum = result["pnl_pct"].cumsum()
+            dd = (cum - cum.cummax()).min()
+            tag = f"{label} | {mt}/day"
+            print(f"  {tag:<40} {n:>5}  {wr:>5.1f}%  {pf:>5.2f}  ${daily:>+7.2f}  {dd:>+6.2f}%")

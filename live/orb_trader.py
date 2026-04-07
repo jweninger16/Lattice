@@ -13,11 +13,11 @@ Strategy:
   - Volume confirmation: only enter if breakout bar volume > OR avg volume
   - Rank all breakouts by vol_ratio, take top MAX_TRADES_PER_DAY
   - Exit at: 1.5x OR range target, 1.0x OR range stop, or 3:55 PM
-  - $1,900 per position, 1 trade/day (best signal by vol_ratio)
+  - $1,900 per position, 2 trades/day (top signals by vol_ratio)
   - Sized for $1,944 settled capital (no unsettled fund usage)
 
 Research results ($5.50 RT cost, 85 stocks):
-  $1,900 x 1/day: 80% WR, 13.53 PF, +$9.36/day, -$7.88 max DD
+  $1,900 x 2/day: top 2 signals by vol_ratio (was 1/day)
 
 Legacy single-ticker mode (QQQ only) available via --single flag.
 
@@ -108,7 +108,7 @@ class ORBConfig:
     # One best signal per day via vol_ratio ranking
     POSITION_SIZE_USD = 1900
     MAX_DAILY_LOSS_PCT = 1.0  # Stop trading if down 1% for the day
-    MAX_TRADES_PER_DAY = 1
+    MAX_TRADES_PER_DAY = 2
 
     # Timing (Eastern Time)
     MARKET_OPEN = dtime(9, 30)
@@ -142,6 +142,7 @@ class ORBTrader:
         self.trade_taken = False
         self.trades_today = 0        # Track number of trades taken today
         self.entered_trade = False   # True only when a real order was placed
+        self._cash_alert_sent = False  # One Discord alert per day for cash issues
         self.gap_skipped = False     # True when gap filter sat us out
         self.daily_pnl = 0
         self.position = None  # {"direction": "long"/"short", "entry": float, "qty": int}
@@ -409,13 +410,75 @@ class ORBTrader:
 
         return direction, price
 
+    def get_settled_cash(self):
+        """
+        Gets settled cash from IBKR.
+        On a cash account, you can only trade with settled funds.
+        Returns settled cash amount, or None if unavailable.
+        """
+        try:
+            summary = self.ib.accountSummary()
+            settled = None
+            total = None
+            for item in summary:
+                if item.currency != "USD":
+                    continue
+                if item.tag == "SettledCash":
+                    settled = float(item.value)
+                elif item.tag == "TotalCashValue":
+                    total = float(item.value)
+            if settled is not None:
+                return settled
+            if total is not None:
+                return total
+            return None
+        except Exception as e:
+            logger.warning(f"Could not get settled cash: {e}")
+            return None
+
+    def _check_cash_and_size(self, size_usd, price, label="ORB"):
+        """
+        Check settled cash and clamp quantity to what we can afford.
+        Returns qty (int) or 0 if we can't afford any shares.
+        """
+        qty = max(1, int(size_usd / price))
+        cost = qty * price
+
+        settled = self.get_settled_cash()
+        if settled is None:
+            return qty  # Can't check — proceed with calculated qty
+
+        if settled < price:
+            # Can't afford even 1 share
+            logger.warning(f"Not enough settled cash: ${settled:,.2f} available, "
+                           f"need ~${price:,.2f} for 1 share. Skipping trade.")
+            if not self._cash_alert_sent:
+                try:
+                    from live.alerts import send_discord
+                    send_discord(f"{label} — Skipping: only ${settled:,.2f} settled cash "
+                                 f"(need ~${cost:,.2f}). Cash settles tomorrow.")
+                except Exception:
+                    pass
+                self._cash_alert_sent = True
+            return 0
+
+        if cost > settled:
+            # Reduce qty to fit available cash (with small buffer)
+            old_qty = qty
+            qty = max(1, int(settled * 0.99 / price))
+            logger.info(f"Reducing qty {old_qty} → {qty} to fit settled cash ${settled:,.2f}")
+
+        return qty
+
     def enter_late_trade(self, contract, direction, price):
         """
         Places a bracket order for the late ORB breakout.
         Uses reduced position size (LATE_POSITION_SCALE).
         """
         late_size = self.position_size * ORBConfig.LATE_POSITION_SCALE
-        qty = max(1, int(late_size / price))
+        qty = self._check_cash_and_size(late_size, price, label="Late ORB")
+        if qty == 0:
+            return False
 
         entry_price = self.late_or_high  # Long-only for now
         target_price = round(entry_price + self.late_or_range * ORBConfig.LATE_TARGET_MULT, 2)
@@ -556,7 +619,9 @@ class ORBTrader:
 
     def enter_trade(self, contract, direction, price):
         """Places a bracket order for the breakout."""
-        qty = max(1, int(self.position_size / price))
+        qty = self._check_cash_and_size(self.position_size, price, label="ORB")
+        if qty == 0:
+            return False
 
         if direction == "long":
             entry_price = self.or_high
@@ -1116,6 +1181,31 @@ class MultiORBTrader:
             except Exception:
                 pass
 
+    def get_settled_cash(self):
+        """
+        Gets settled cash from IBKR.
+        On a cash account, you can only trade with settled funds.
+        """
+        try:
+            summary = self.ib.accountSummary()
+            settled = None
+            total = None
+            for item in summary:
+                if item.currency != "USD":
+                    continue
+                if item.tag == "SettledCash":
+                    settled = float(item.value)
+                elif item.tag == "TotalCashValue":
+                    total = float(item.value)
+            if settled is not None:
+                return settled
+            if total is not None:
+                return total
+            return None
+        except Exception as e:
+            logger.warning(f"Could not get settled cash: {e}")
+            return None
+
     def record_trade(self, ticker, direction, entry, exit_price, qty, reason):
         """Record a completed trade to account JSON (read by Lattice)."""
         if direction == "long":
@@ -1389,6 +1479,27 @@ class MultiORBTrader:
         vol_ratio = candidate["vol_ratio"]
 
         qty = max(1, int(self.position_size / price))
+        cost = qty * price
+
+        # ── Check settled cash before placing order ──────────
+        settled = self.get_settled_cash()
+        if settled is not None:
+            if settled < price:
+                logger.warning(f"{ticker}: Not enough settled cash: ${settled:,.2f} available, "
+                               f"need ~${price:,.2f} for 1 share. Skipping.")
+                try:
+                    from live.alerts import send_discord
+                    send_discord(f"ORB — Skipping {ticker}: only ${settled:,.2f} settled cash "
+                                 f"(need ~${cost:,.2f}). Cash settles tomorrow.")
+                except Exception:
+                    pass
+                return False
+            if cost > settled:
+                old_qty = qty
+                qty = max(1, int(settled * 0.99 / price))
+                logger.info(f"{ticker}: Reducing qty {old_qty} → {qty} "
+                            f"to fit settled cash ${settled:,.2f}")
+
         or_range = state["or_range"]
         trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
         stop_price = round(state["or_high"] - or_range * ORBConfig.STOP_MULT, 2)
