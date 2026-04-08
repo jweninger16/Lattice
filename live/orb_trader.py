@@ -87,7 +87,7 @@ class ORBConfig:
     STOP_MULT = 1.0          # Initial stop = 1.0x opening range
     TRAIL_MULT = 0.3         # Trailing stop distance = 0.3x opening range
     # Research: 0.3x trail = 6.69 PF, 67% WR, -1.29% DD (vs 1.64 PF fixed target)
-    MAX_GAP_PCT = 0.5        # Skip if gap > 0.5%
+    MAX_GAP_PCT = 1.0        # Skip if gap > 1.0% (backtest: 1.25 PF vs 1.15 at 0.5%)
     DIRECTION = "long"       # "long" only — cash account, no shorting
 
     # Strategy — Late ORB (gap day second entry window)
