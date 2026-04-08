@@ -64,7 +64,7 @@ except ImportError:
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder
+from ib_insync import IB, Stock, MarketOrder, LimitOrder, StopOrder, Order
 
 try:
     from live.discord_format import (
@@ -131,7 +131,18 @@ class ORBConfig:
     FORCE_EXIT = dtime(15, 55)  # Force close at 3:55 PM
     MARKET_CLOSE = dtime(16, 0)
 
-    # Monitoring
+    # OCA pre-placed entry (eliminates breakout detection latency)
+    OCA_ENABLED = True           # False = fallback to poll-based scan entry
+    OCA_CANDIDATE_LIMIT = 5      # Pre-place orders for top N candidates after OR ranking
+    OCA_STOP_OFFSET = 0.01       # Trigger = or_high + $0.01
+    OCA_LIMIT_SLIPPAGE = 0.001   # Max fill = or_high * 1.001 (0.1% slippage cap)
+
+    # Streaming market data (eliminates per-poll API calls)
+    STREAMING_ENABLED = True     # False = fallback to snapshot pricing
+    FAST_CHECK_INTERVAL = 1.5    # Trail update interval when positions open (seconds)
+    SLOW_CHECK_INTERVAL = 5      # Scan interval when no positions (seconds)
+
+    # Monitoring (legacy fallback)
     CHECK_INTERVAL = 10      # Check every 10 seconds during active trading
 
 
@@ -1154,6 +1165,15 @@ class MultiORBTrader:
         self.premarket_brief = None
         self.intel_collector = MarketIntelCollector() if MarketIntelCollector else None
 
+        # OCA pre-placed entry state
+        self.oca_mode = False            # True when OCA orders are active
+        self.oca_group_name = None       # e.g., "ORB_20260408"
+        self.oca_trades = {}             # {ticker: Trade object from placeOrder}
+
+        # Streaming market data state
+        self.streaming_tickers = {}      # {ticker: ib_insync Ticker object (updates in place)}
+        self.streaming_contracts = {}    # {ticker: Contract} for cleanup
+
         # Account tracking (shared with Lattice dashboard)
         self.ACCOUNT_FILE = Path("live/gap_scanner_account.json")
         self.account = self._load_account()
@@ -1429,7 +1449,301 @@ class MultiORBTrader:
         logger.info(f"Opening ranges computed: {computed} tickers "
                     f"(gap-filtered: {skipped_gap}, no data: {skipped_data})")
 
-    # ── Breakout Scanning ─────────────────────────────────────────────
+    # ── OCA Pre-placed Entry ─────────────────────────────────────────
+
+    def rank_oca_candidates(self):
+        """
+        Rank all tickers with computed ORs for OCA order placement.
+        Uses OR volume + pre-market intel to select top N candidates.
+        Returns list of dicts: [{ticker, state, qty, score}]
+        """
+        candidates = []
+        for ticker, state in self.ticker_state.items():
+            if state["breakout_detected"]:
+                continue
+
+            or_avg_vol = state["or_avg_volume"]
+            if or_avg_vol <= 0:
+                continue
+
+            # Base score: OR average volume (proxy for breakout likelihood)
+            vol_score = min(or_avg_vol / 50000, 1.0)  # Normalize
+
+            # Intel score from pre-market brief
+            intel_score = 0.0
+            skip = False
+            if self.premarket_brief and self.premarket_brief.gap_rankings is not None:
+                rankings = self.premarket_brief.gap_rankings
+                skip_set = self.premarket_brief.skip_tickers or set()
+                if ticker in skip_set:
+                    continue  # Skip earnings-day tickers
+                match = rankings[rankings["ticker"] == ticker]
+                if not match.empty:
+                    intel_score = float(match.iloc[0]["intel_score"])
+
+            # Composite: 70% volume quality + 30% intel
+            composite = 0.7 * vol_score + 0.3 * intel_score
+
+            candidates.append({
+                "ticker": ticker,
+                "state": state,
+                "score": composite,
+            })
+
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+        top = candidates[:ORBConfig.OCA_CANDIDATE_LIMIT]
+
+        if top:
+            logger.info(f"OCA candidates (top {len(top)} of {len(candidates)}):")
+            for c in top:
+                logger.info(f"  {c['ticker']}: score={c['score']:.3f}, "
+                            f"OR=${c['state']['or_high']:.2f}-${c['state']['or_low']:.2f} "
+                            f"(range ${c['state']['or_range']:.2f})")
+        return top
+
+    def place_oca_orders(self, candidates):
+        """
+        Place BUY STOP LIMIT orders for top candidates in an OCA group.
+        IBKR triggers at exact breakout tick — zero detection latency.
+        OCA cancels remaining orders when the first one fills.
+        """
+        self.oca_group_name = f"ORB_{date.today().strftime('%Y%m%d')}"
+
+        # Cash check: OCA orders are one-at-a-time (OCA cancels rest on fill),
+        # but verify we have enough for at least one position
+        CASH_BUFFER = 1.05
+        settled = self.get_settled_cash()
+
+        placed = 0
+        for candidate in candidates:
+            ticker = candidate["ticker"]
+            state = candidate["state"]
+            contract = state["contract"]
+            or_high = state["or_high"]
+
+            qty = max(1, int(self.position_size / or_high))
+            cost = qty * or_high
+
+            # Verify cash for this position size
+            if settled is not None and cost * CASH_BUFFER > settled:
+                old_qty = qty
+                qty = max(1, int(settled / (or_high * CASH_BUFFER)))
+                if qty < 1:
+                    logger.warning(f"{ticker}: OCA skipped — insufficient settled cash "
+                                   f"${settled:,.2f} for even 1 share @ ${or_high:.2f}")
+                    continue
+                logger.info(f"{ticker}: OCA qty {old_qty} → {qty} to fit settled cash")
+
+            trigger_price = round(or_high + ORBConfig.OCA_STOP_OFFSET, 2)
+            limit_price = round(or_high * (1 + ORBConfig.OCA_LIMIT_SLIPPAGE), 2)
+
+            order = Order()
+            order.action = "BUY"
+            order.totalQuantity = qty
+            order.orderType = "STP LMT"
+            order.auxPrice = trigger_price    # Stop trigger
+            order.lmtPrice = limit_price      # Max fill price (slippage cap)
+            order.tif = "DAY"
+            order.ocaGroup = self.oca_group_name
+            order.ocaType = 1  # Cancel remaining on fill
+
+            try:
+                trade = self.ib.placeOrder(contract, order)
+                self.oca_trades[ticker] = trade
+                placed += 1
+                logger.info(f"  OCA placed: {ticker} BUY STP LMT "
+                            f"trigger=${trigger_price:.2f} limit=${limit_price:.2f} "
+                            f"qty={qty} (group={self.oca_group_name})")
+            except Exception as e:
+                logger.warning(f"  {ticker}: OCA order failed: {e}")
+
+            # Throttle between order placements
+            if placed % 3 == 0:
+                self.ib.sleep(0.5)
+
+        logger.info(f"OCA orders placed: {placed}/{len(candidates)} "
+                     f"(group={self.oca_group_name})")
+        return placed > 0
+
+    def check_oca_fills(self):
+        """
+        Check if any OCA entry orders have filled.
+        When a fill is detected: place the initial stop, record the position,
+        and begin trail management.
+        """
+        for ticker, trade in list(self.oca_trades.items()):
+            status = trade.orderStatus.status
+
+            if status == "Filled":
+                fill_price = trade.orderStatus.avgFillPrice
+                if not fill_price or fill_price <= 0:
+                    fill_price = trade.order.lmtPrice  # Fallback
+
+                state = self.ticker_state[ticker]
+                contract = state["contract"]
+                or_range = state["or_range"]
+                or_high = state["or_high"]
+                qty = int(trade.orderStatus.filled) or trade.order.totalQuantity
+
+                slippage = fill_price - or_high
+                logger.info(f"OCA FILL: {ticker} {qty} shares @ ${fill_price:.2f} "
+                            f"(breakout=${or_high:.2f}, slip={'+'if slippage>0 else ''}"
+                            f"{slippage:.2f})")
+
+                # Place initial stop (standalone — not bracket-linked)
+                stop_price = round(fill_price - or_range * ORBConfig.STOP_MULT, 2)
+                trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
+
+                initial_stop = StopOrder("SELL", qty, stop_price)
+                initial_stop.tif = "DAY"
+                initial_stop.transmit = True
+
+                try:
+                    stop_trade = self.ib.placeOrder(contract, initial_stop)
+                    self.ib.sleep(2)
+
+                    # Verify stop was accepted
+                    if stop_trade.orderStatus.status in ("Cancelled", "Inactive"):
+                        logger.error(f"{ticker}: OCA stop REJECTED — "
+                                     f"closing position immediately")
+                        close = MarketOrder("SELL", qty)
+                        close.tif = "DAY"
+                        self.ib.placeOrder(contract, close)
+                        del self.oca_trades[ticker]
+                        self.trades_today += 1
+                        continue
+                except Exception as e:
+                    logger.error(f"{ticker}: OCA stop placement failed: {e}")
+                    del self.oca_trades[ticker]
+                    continue
+
+                # Record position (same structure as enter_trade)
+                self.positions[ticker] = {
+                    "direction": "long",
+                    "entry": fill_price,
+                    "qty": qty,
+                    "stop": stop_price,
+                    "trail_amt": trail_amt,
+                    "trail_active": False,
+                    "highest": fill_price,
+                    "order_id": trade.order.orderId,
+                    "stop_order_id": initial_stop.orderId,
+                    "confirmed": True,  # OCA fill = position confirmed
+                    "contract": contract,
+                }
+                self.trades_today += 1
+                state["breakout_detected"] = True
+
+                logger.info(f"ENTRY (OCA): LONG {qty} {ticker} @ ${fill_price:.2f} | "
+                            f"stop=${stop_price:.2f} | trail=${trail_amt:.2f} "
+                            f"({ORBConfig.TRAIL_MULT}x OR) | "
+                            f"trade {self.trades_today}/{self.max_trades}")
+
+                # Discord alert
+                try:
+                    from live.alerts import send_discord
+                    slip_str = f", slip {'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else ""
+                    if fmt_entry:
+                        msg = fmt_entry("ORB", ticker, "long", qty,
+                                        fill_price, stop_price, None,
+                                        position_size=self.position_size,
+                                        extra={"Entry": "OCA stop-limit",
+                                               "Slippage": f"{'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else "none",
+                                               "Trail": f"${trail_amt:.2f}",
+                                               "Trade": f"{self.trades_today}/{self.max_trades}"})
+                    else:
+                        msg = (f"ORB LONG (OCA): {qty} {ticker} @ ${fill_price:.2f}"
+                               f"{slip_str} | stop=${stop_price:.2f} | "
+                               f"trail=${trail_amt:.2f}")
+                    send_discord(msg)
+                except Exception:
+                    pass
+
+                del self.oca_trades[ticker]
+
+            elif status in ("Cancelled", "Inactive"):
+                logger.info(f"{ticker}: OCA order {status.lower()} "
+                            f"(another OCA filled or rejected)")
+                del self.oca_trades[ticker]
+
+    def cancel_oca_orders(self):
+        """Cancel all unfilled OCA orders (called at 2 PM cutoff or EOD)."""
+        if not self.oca_trades:
+            return
+        logger.info(f"Cancelling {len(self.oca_trades)} unfilled OCA orders...")
+        for ticker, trade in list(self.oca_trades.items()):
+            try:
+                self.ib.cancelOrder(trade.order)
+                logger.info(f"  {ticker}: OCA order cancelled")
+            except Exception as e:
+                logger.warning(f"  {ticker}: OCA cancel failed: {e}")
+        self.oca_trades.clear()
+
+    # ── Streaming Market Data ────────────────────────────────────────
+
+    def subscribe_streaming(self, contracts_dict):
+        """
+        Subscribe to real-time market data for candidates.
+        Ticker objects update in-place from TWS data feed — no per-poll API calls.
+        """
+        count = 0
+        for ticker, contract in contracts_dict.items():
+            if ticker in self.streaming_tickers:
+                continue  # Already subscribed
+            try:
+                ticker_obj = self.ib.reqMktData(contract, "", False, False)
+                self.streaming_tickers[ticker] = ticker_obj
+                self.streaming_contracts[ticker] = contract
+                count += 1
+            except Exception as e:
+                logger.warning(f"{ticker}: streaming subscribe failed: {e}")
+
+            if count % 20 == 0 and count > 0:
+                self.ib.sleep(0.5)  # Throttle subscriptions
+
+        if count > 0:
+            logger.info(f"Streaming subscriptions: +{count} new "
+                        f"({len(self.streaming_tickers)} total)")
+
+    def cancel_all_streaming(self):
+        """Cancel all streaming market data subscriptions."""
+        if not self.streaming_contracts:
+            return
+        for ticker, contract in self.streaming_contracts.items():
+            try:
+                self.ib.cancelMktData(contract)
+            except Exception:
+                pass
+        count = len(self.streaming_tickers)
+        self.streaming_tickers.clear()
+        self.streaming_contracts.clear()
+        logger.info(f"Streaming subscriptions cancelled ({count} tickers)")
+
+    def get_streaming_price(self, ticker):
+        """
+        Read price from streaming Ticker object (local read, no API call).
+        Falls back to snapshot if streaming not available for this ticker.
+        """
+        ticker_obj = self.streaming_tickers.get(ticker)
+        if ticker_obj is None:
+            # Fallback to snapshot
+            contract = self.positions.get(ticker, {}).get("contract")
+            if contract:
+                return self.get_current_price(contract)
+            return None
+
+        price = ticker_obj.last
+        if price != price:  # NaN check
+            price = ticker_obj.marketPrice()
+        if price != price:
+            # Try mid-point
+            if ticker_obj.bid == ticker_obj.bid and ticker_obj.ask == ticker_obj.ask:
+                price = (ticker_obj.bid + ticker_obj.ask) / 2
+            else:
+                price = None
+        return price
+
+    # ── Breakout Scanning (fallback when OCA disabled) ───────────────
 
     def scan_for_breakouts(self):
         """
@@ -1685,8 +1999,11 @@ class MultiORBTrader:
             if has_ibkr_pos:
                 pos["confirmed"] = True
 
-                # Update trailing stop: get current price and adjust stop upward
-                price = self.get_current_price(pos["contract"])
+                # Update trailing stop: use streaming price (instant) or snapshot (fallback)
+                if ticker in self.streaming_tickers:
+                    price = self.get_streaming_price(ticker)
+                else:
+                    price = self.get_current_price(pos["contract"])
                 if price and price > pos.get("highest", pos["entry"]):
                     pos["highest"] = price
                     new_stop = round(price - pos["trail_amt"], 2)
@@ -1752,7 +2069,12 @@ class MultiORBTrader:
 
     def force_close_all(self):
         """Force close all open positions at end of day."""
+        # Cancel unfilled OCA orders first
+        self.cancel_oca_orders()
+
         if not self.positions:
+            # Clean up streaming even if no positions
+            self.cancel_all_streaming()
             return
 
         logger.info(f"EOD: Force closing {len(self.positions)} positions...")
@@ -1796,6 +2118,7 @@ class MultiORBTrader:
                     pass
 
         self.positions.clear()
+        self.cancel_all_streaming()
 
     # ── Main Run Loop ─────────────────────────────────────────────────
 
@@ -1812,6 +2135,10 @@ class MultiORBTrader:
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
         logger.info(f"  Volume confirmation: "
                     f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
+        logger.info(f"  Entry mode: "
+                    f"{'OCA stop-limit' if ORBConfig.OCA_ENABLED else 'poll + market order'}")
+        logger.info(f"  Streaming data: "
+                    f"{'ON' if ORBConfig.STREAMING_ENABLED else 'OFF (snapshot polling)'}")
         logger.info("=" * 60)
 
         if not self.connect():
@@ -1918,6 +2245,40 @@ class MultiORBTrader:
                         logger.warning("No tickers passed OR computation. Sitting out today.")
                         break
 
+                    # ── OCA + Streaming setup (immediately after OR computation) ──
+                    if ORBConfig.OCA_ENABLED:
+                        try:
+                            oca_candidates = self.rank_oca_candidates()
+                            if oca_candidates:
+                                # Subscribe streaming for OCA candidates
+                                if ORBConfig.STREAMING_ENABLED:
+                                    oca_contracts = {c["ticker"]: c["state"]["contract"]
+                                                     for c in oca_candidates}
+                                    self.subscribe_streaming(oca_contracts)
+                                    self.ib.sleep(2)  # Let streaming data populate
+
+                                # Place OCA orders
+                                if self.place_oca_orders(oca_candidates):
+                                    self.oca_mode = True
+                                    logger.info(f"OCA mode ACTIVE: {len(self.oca_trades)} orders, "
+                                                f"{len(self.streaming_tickers)} streaming")
+                                else:
+                                    logger.warning("OCA placement failed — "
+                                                   "falling back to scan mode")
+                            else:
+                                logger.info("No OCA candidates qualified — "
+                                            "falling back to scan mode")
+                        except Exception as e:
+                            logger.error(f"OCA setup failed: {e} — "
+                                         "falling back to scan mode")
+                            self.oca_mode = False
+                    elif ORBConfig.STREAMING_ENABLED:
+                        # Streaming without OCA: subscribe for all computed tickers
+                        # (improves trail accuracy even with poll-based entry)
+                        all_contracts = {t: s["contract"]
+                                         for t, s in self.ticker_state.items()}
+                        self.subscribe_streaming(all_contracts)
+
                 # After market close
                 if current_time >= ORBConfig.MARKET_CLOSE:
                     logger.info("Market closed.")
@@ -1931,29 +2292,44 @@ class MultiORBTrader:
 
                 # No new entries after 2 PM
                 if current_time >= ORBConfig.LAST_ENTRY:
+                    # Cancel unfilled OCA orders at cutoff
+                    if self.oca_trades:
+                        logger.info(f"2 PM cutoff: cancelling {len(self.oca_trades)} "
+                                    f"unfilled OCA orders")
+                        self.cancel_oca_orders()
+
                     # Just monitor existing positions
                     if self.positions:
                         self.check_all_positions()
                     self.ib.sleep(30)
                     continue
 
-                # Scan for breakouts if we have capacity
+                # ── Entry: OCA mode (check fills) or scan mode (poll breakouts) ──
                 if self.trades_today < self.max_trades:
-                    candidates = self.scan_for_breakouts()
-                    slots_available = self.max_trades - self.trades_today
+                    if self.oca_mode and self.oca_trades:
+                        # OCA mode: IBKR detects breakouts, we just check fills
+                        self.check_oca_fills()
+                    elif not self.oca_mode:
+                        # Fallback: original poll-based scanning
+                        candidates = self.scan_for_breakouts()
+                        slots_available = self.max_trades - self.trades_today
 
-                    for candidate in candidates[:slots_available]:
-                        logger.info(f"BREAKOUT: {candidate['ticker']} "
-                                    f"{candidate['direction'].upper()} "
-                                    f"@ ${candidate['price']:.2f} "
-                                    f"(vol {candidate['vol_ratio']:.1f}x)")
-                        self.enter_trade(candidate)
+                        for candidate in candidates[:slots_available]:
+                            logger.info(f"BREAKOUT: {candidate['ticker']} "
+                                        f"{candidate['direction'].upper()} "
+                                        f"@ ${candidate['price']:.2f} "
+                                        f"(vol {candidate['vol_ratio']:.1f}x)")
+                            self.enter_trade(candidate)
 
-                # Monitor existing positions
+                # Monitor existing positions (streaming = fast, snapshot = fallback)
                 if self.positions:
                     self.check_all_positions()
 
-                self.ib.sleep(ORBConfig.CHECK_INTERVAL)
+                # Adaptive sleep: fast when actively trailing or watching OCA
+                if self.positions or (self.oca_mode and self.oca_trades):
+                    self.ib.sleep(ORBConfig.FAST_CHECK_INTERVAL)
+                else:
+                    self.ib.sleep(ORBConfig.SLOW_CHECK_INTERVAL)
 
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
@@ -1965,9 +2341,14 @@ class MultiORBTrader:
             if self.positions:
                 logger.warning(f"You may have {len(self.positions)} open positions! Check TWS.")
         finally:
+            # Clean up OCA and streaming
+            self.cancel_oca_orders()
+            self.cancel_all_streaming()
+
             # Daily summary
+            entry_mode = "OCA" if self.oca_mode else "scan"
             logger.info(f"Daily summary: {self.trades_today} trades, "
-                        f"P&L: {self.daily_pnl:+.2f}%")
+                        f"P&L: {self.daily_pnl:+.2f}% (entry: {entry_mode})")
             try:
                 from live.alerts import send_discord
                 if fmt_day_complete:
@@ -1977,6 +2358,7 @@ class MultiORBTrader:
                         ticker=None,
                         pnl_pct=self.daily_pnl,
                         extra={"Trades": f"{self.trades_today}/{self.max_trades}",
+                               "Entry mode": entry_mode,
                                "Positions": ", ".join(self.positions.keys()) or "none"},
                     )
                 else:
@@ -2003,10 +2385,20 @@ def run_orb(args=None):
                         help="Single-ticker mode (QQQ only, legacy)")
     parser.add_argument("--max-trades", type=int, default=1,
                         help="Max trades per day (default: 1)")
+    parser.add_argument("--no-oca", action="store_true",
+                        help="Disable OCA stop-limit entry (use poll-based scan)")
+    parser.add_argument("--no-streaming", action="store_true",
+                        help="Disable streaming data (use snapshot polling)")
     if args is not None:
         parsed = parser.parse_args(args)
     else:
         parsed = parser.parse_args(sys.argv[2:] if len(sys.argv) > 2 else [])
+
+    # Apply CLI overrides to config
+    if parsed.no_oca:
+        ORBConfig.OCA_ENABLED = False
+    if parsed.no_streaming:
+        ORBConfig.STREAMING_ENABLED = False
 
     if parsed.single:
         # Legacy single-ticker mode
