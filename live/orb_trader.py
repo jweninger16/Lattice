@@ -1805,21 +1805,30 @@ class MultiORBTrader:
                             logger.warning(f"Pre-market intel failed (non-fatal): {e}")
                             self.premarket_brief = None
 
-                        # RSI(2) bear-regime check (runs once during pre-market)
+                        # RSI(2) bear-regime check + auto-execute (once during pre-market)
                         if rsi2_check is not None:
                             try:
-                                rsi2_signal = rsi2_check()
-                                if rsi2_signal["action"] == "buy":
-                                    logger.info(f"RSI(2) BUY SIGNAL active — "
-                                                f"{rsi2_signal['reason']}")
-                                    logger.info("ORB will still run. Execute RSI(2) "
-                                                "trade manually or via daily command.")
-                                elif rsi2_signal["action"] == "sell":
-                                    logger.info(f"RSI(2) SELL SIGNAL — "
-                                                f"{rsi2_signal['reason']}")
-                                elif rsi2_signal["action"] == "hold":
+                                rsi2_signal = rsi2_check(ib=self.ib)
+                                rsi2_action = rsi2_signal["action"]
+                                if rsi2_action == "buy":
+                                    if rsi2_signal.get("executed"):
+                                        logger.info("RSI(2) BUY auto-executed — "
+                                                    "cash tied up, ORB will skip today")
+                                    else:
+                                        logger.info(f"RSI(2) BUY SIGNAL — "
+                                                    f"{rsi2_signal['reason']}")
+                                elif rsi2_action == "sell":
+                                    if rsi2_signal.get("executed"):
+                                        logger.info("RSI(2) SELL auto-executed — "
+                                                    "cash freed, ORB can trade")
+                                    else:
+                                        logger.info(f"RSI(2) SELL SIGNAL — "
+                                                    f"{rsi2_signal['reason']}")
+                                elif rsi2_action == "hold":
                                     logger.info(f"RSI(2) position open — "
                                                 f"{rsi2_signal['reason']}")
+                                    logger.info("Cash tied up in RSI(2) hold — "
+                                                "ORB will check settled cash before trading")
                             except Exception as e:
                                 logger.warning(f"RSI(2) check failed (non-fatal): {e}")
                     else:

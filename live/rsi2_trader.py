@@ -14,9 +14,9 @@ Backtest results (2 years, $1,900 position, $5.50 RT):
 This module:
   - Checks daily RSI(2) on SPY via yfinance
   - Sends Discord alerts when entry/exit conditions are met
+  - Auto-executes buy/sell via IBKR when called with an ib connection
   - Tracks position state in a JSON file (survives restarts)
-  - Does NOT place orders automatically — sends alerts for manual execution
-    (can be upgraded to auto-execute via IBKR later)
+  - Checks settled cash before buying (cash account safe)
 
 Usage:
     Called by MultiORBTrader when VIX >= 20, OR standalone:
@@ -305,14 +305,168 @@ def send_rsi2_alert(signal):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# IBKR Auto-Execution
+# ═══════════════════════════════════════════════════════════════════════
+
+def execute_rsi2_via_ibkr(ib, signal):
+    """
+    Auto-execute RSI(2) buy/sell using an existing IBKR connection.
+
+    Args:
+        ib: connected ib_insync.IB instance (from ORB trader)
+        signal: dict from check_signals()
+
+    Returns:
+        True if order placed successfully, False otherwise.
+    """
+    from ib_insync import Stock, MarketOrder
+
+    action = signal["action"]
+    if action not in ("buy", "sell"):
+        return False
+
+    # Qualify SPY contract
+    try:
+        contract = Stock(TICKER, "SMART", "USD")
+        ib.qualifyContracts(contract)
+    except Exception as e:
+        logger.error(f"RSI(2) failed to qualify {TICKER} contract: {e}")
+        return False
+
+    state = load_state()
+
+    if action == "buy":
+        # Check settled cash first
+        try:
+            summary = ib.accountSummary()
+            settled = None
+            for item in summary:
+                if item.currency == "USD" and item.tag == "SettledCash":
+                    settled = float(item.value)
+                    break
+            if settled is None:
+                for item in summary:
+                    if item.currency == "USD" and item.tag == "TotalCashValue":
+                        settled = float(item.value)
+                        break
+        except Exception as e:
+            logger.warning(f"RSI(2) could not check settled cash: {e}")
+            settled = None
+
+        price = signal["price"]
+        qty = max(1, int(POSITION_SIZE / price))
+        cost = qty * price
+
+        if settled is not None and settled < price:
+            logger.warning(f"RSI(2) SKIP: only ${settled:,.2f} settled cash, "
+                           f"need ~${price:.2f} for 1 share of {TICKER}")
+            try:
+                from live.alerts import send_discord
+                send_discord(f"RSI(2) BUY blocked — only ${settled:,.2f} settled cash "
+                             f"(need ~${cost:,.2f} for {qty} {TICKER})")
+            except Exception:
+                pass
+            return False
+
+        if settled is not None and cost > settled:
+            old_qty = qty
+            qty = max(1, int(settled * 0.99 / price))
+            logger.info(f"RSI(2) reducing qty {old_qty} -> {qty} "
+                        f"to fit settled cash ${settled:,.2f}")
+
+        # Place market buy
+        try:
+            order = MarketOrder("BUY", qty)
+            trade = ib.placeOrder(contract, order)
+            ib.sleep(3)  # Wait for fill
+
+            fill_price = price  # default
+            if trade.fills:
+                fill_price = trade.fills[0].execution.price
+            elif trade.orderStatus.avgFillPrice > 0:
+                fill_price = trade.orderStatus.avgFillPrice
+
+            record_entry(fill_price, qty)
+            logger.info(f"RSI(2) AUTO-BUY executed: {qty} {TICKER} @ ${fill_price:.2f}")
+
+            try:
+                from live.alerts import send_discord
+                send_discord(f"RSI(2) AUTO-BUY executed: {qty} {TICKER} @ ${fill_price:.2f}\n"
+                             f"RSI(2)={signal['rsi']:.1f} | VIX={signal['vix']:.1f}\n"
+                             f"Hold target: sell when RSI(2) > {RSI_EXIT}")
+            except Exception:
+                pass
+            return True
+
+        except Exception as e:
+            logger.error(f"RSI(2) buy order failed: {e}")
+            try:
+                from live.alerts import send_discord
+                send_discord(f"RSI(2) BUY ORDER FAILED: {e}\n"
+                             f"Manual action needed: BUY {qty} {TICKER}")
+            except Exception:
+                pass
+            return False
+
+    elif action == "sell":
+        # Get current qty from state
+        qty = state.get("qty", 0)
+        if qty <= 0:
+            logger.warning("RSI(2) sell signal but no position recorded")
+            return False
+
+        # Place market sell
+        try:
+            order = MarketOrder("SELL", qty)
+            trade = ib.placeOrder(contract, order)
+            ib.sleep(3)
+
+            fill_price = signal["price"]
+            if trade.fills:
+                fill_price = trade.fills[0].execution.price
+            elif trade.orderStatus.avgFillPrice > 0:
+                fill_price = trade.orderStatus.avgFillPrice
+
+            record_exit(fill_price)
+            logger.info(f"RSI(2) AUTO-SELL executed: {qty} {TICKER} @ ${fill_price:.2f}")
+
+            entry_price = state.get("entry_price", fill_price)
+            pnl_pct = (fill_price - entry_price) / entry_price * 100
+            try:
+                from live.alerts import send_discord
+                send_discord(f"RSI(2) AUTO-SELL executed: {qty} {TICKER} @ ${fill_price:.2f}\n"
+                             f"P&L: {pnl_pct:+.2f}% | RSI(2)={signal['rsi']:.1f}")
+            except Exception:
+                pass
+            return True
+
+        except Exception as e:
+            logger.error(f"RSI(2) sell order failed: {e}")
+            try:
+                from live.alerts import send_discord
+                send_discord(f"RSI(2) SELL ORDER FAILED: {e}\n"
+                             f"Manual action needed: SELL {qty} {TICKER}")
+            except Exception:
+                pass
+            return False
+
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Integration with ORB Trader
 # ═══════════════════════════════════════════════════════════════════════
 
-def check_and_alert():
+def check_and_alert(ib=None):
     """
     Main entry point — called by ORB trader or scheduler.
-    Checks signals and sends Discord alert if action needed.
-    Returns the signal dict.
+    Checks signals, sends Discord alert, and auto-executes if ib provided.
+
+    Args:
+        ib: optional ib_insync.IB connection for auto-execution.
+            If None, sends alerts only (no auto-trade).
+
+    Returns the signal dict (with 'executed' key if auto-traded).
     """
     signal = check_signals()
     action = signal["action"]
@@ -320,7 +474,16 @@ def check_and_alert():
     if action in ("buy", "sell", "hold"):
         send_rsi2_alert(signal)
 
-    if action == "buy":
+    if action in ("buy", "sell") and ib is not None:
+        # Auto-execute via IBKR
+        success = execute_rsi2_via_ibkr(ib, signal)
+        signal["executed"] = success
+        if success:
+            logger.info(f"RSI(2) {action.upper()} auto-executed successfully")
+        else:
+            logger.warning(f"RSI(2) {action.upper()} auto-execution failed — "
+                           f"check Discord for manual instructions")
+    elif action == "buy":
         logger.info(f"RSI(2) BUY SIGNAL: {signal['reason']}")
     elif action == "sell":
         logger.info(f"RSI(2) SELL SIGNAL: {signal['reason']}")
