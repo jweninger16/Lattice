@@ -1527,23 +1527,27 @@ class MultiORBTrader:
         cost = qty * price
 
         # ── Check settled cash before placing order ──────────
+        # IBKR requires extra margin beyond stock cost for bracket orders
+        # (stop order overhead, commissions, fees). Use 5% buffer.
+        CASH_BUFFER = 1.05
         settled = self.get_settled_cash()
         if settled is not None:
-            if settled < price:
+            if settled < price * CASH_BUFFER:
                 logger.warning(f"{ticker}: Not enough settled cash: ${settled:,.2f} available, "
-                               f"need ~${price:,.2f} for 1 share. Skipping.")
+                               f"need ~${price * CASH_BUFFER:,.2f} for 1 share + bracket overhead. Skipping.")
                 try:
                     from live.alerts import send_discord
                     send_discord(f"ORB — Skipping {ticker}: only ${settled:,.2f} settled cash "
-                                 f"(need ~${cost:,.2f}). Cash settles tomorrow.")
+                                 f"(need ~${cost * CASH_BUFFER:,.2f} incl. bracket overhead). Cash settles tomorrow.")
                 except Exception:
                     pass
                 return False
-            if cost > settled:
+            if cost * CASH_BUFFER > settled:
                 old_qty = qty
-                qty = max(1, int(settled * 0.99 / price))
+                qty = max(1, int(settled / (price * CASH_BUFFER)))
+                cost = qty * price
                 logger.info(f"{ticker}: Reducing qty {old_qty} → {qty} "
-                            f"to fit settled cash ${settled:,.2f}")
+                            f"to fit settled cash ${settled:,.2f} (with 5% bracket buffer)")
 
         or_range = state["or_range"]
         trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
@@ -1568,14 +1572,46 @@ class MultiORBTrader:
             initial_stop.tif = "DAY"
             initial_stop.parentId = parent_trade.order.orderId
             initial_stop.transmit = True
-            self.ib.placeOrder(contract, initial_stop)
+            stop_trade = self.ib.placeOrder(contract, initial_stop)
 
-            self.ib.sleep(1)
+            # Wait for IBKR to process the full bracket order
+            self.ib.sleep(3)
+
+            # ── Verify bracket was ACCEPTED before recording entry ──
+            # The bracket rejection (Error 201) happens when transmit=True
+            # triggers the full bracket submission. We must re-check BOTH orders.
+            self.ib.sleep(1)  # Extra settle time for IBKR status propagation
+            if parent_trade.orderStatus.status in ("Cancelled", "Inactive"):
+                logger.error(f"{ticker}: bracket order REJECTED after transmit — "
+                             f"parent status: {parent_trade.orderStatus.status}. "
+                             f"Likely insufficient settled cash for bracket overhead.")
+                try:
+                    from live.alerts import send_discord
+                    send_discord(f"⚠️ ORB — {ticker} bracket REJECTED by IBKR (Error 201). "
+                                 f"Settled cash insufficient for bracket overhead.")
+                except Exception:
+                    pass
+                return False
+            if stop_trade.orderStatus.status in ("Cancelled", "Inactive"):
+                logger.error(f"{ticker}: stop order REJECTED — "
+                             f"status: {stop_trade.orderStatus.status}. "
+                             f"Cancelling parent order.")
+                try:
+                    self.ib.cancelOrder(parent_trade.order)
+                except Exception:
+                    pass
+                try:
+                    from live.alerts import send_discord
+                    send_discord(f"⚠️ ORB — {ticker} stop order REJECTED. Parent cancelled.")
+                except Exception:
+                    pass
+                return False
 
         except Exception as e:
             logger.error(f"{ticker}: order placement failed: {e}")
             return False
 
+        # ── Only record position AFTER bracket is confirmed accepted ──
         self.positions[ticker] = {
             "direction": direction,
             "entry": entry_price,
