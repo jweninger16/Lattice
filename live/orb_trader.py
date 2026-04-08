@@ -53,6 +53,13 @@ except ImportError:
     MarketIntelCollector = None
     PreMarketBrief = None
 
+# RSI(2) bear-regime mean reversion (optional)
+try:
+    from live.rsi2_trader import check_and_alert as rsi2_check, VIX_THRESHOLD as RSI2_VIX_THRESHOLD
+except ImportError:
+    rsi2_check = None
+    RSI2_VIX_THRESHOLD = 20
+
 # Python 3.14 fix
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -1797,6 +1804,24 @@ class MultiORBTrader:
                         except Exception as e:
                             logger.warning(f"Pre-market intel failed (non-fatal): {e}")
                             self.premarket_brief = None
+
+                        # RSI(2) bear-regime check (runs once during pre-market)
+                        if rsi2_check is not None:
+                            try:
+                                rsi2_signal = rsi2_check()
+                                if rsi2_signal["action"] == "buy":
+                                    logger.info(f"RSI(2) BUY SIGNAL active — "
+                                                f"{rsi2_signal['reason']}")
+                                    logger.info("ORB will still run. Execute RSI(2) "
+                                                "trade manually or via daily command.")
+                                elif rsi2_signal["action"] == "sell":
+                                    logger.info(f"RSI(2) SELL SIGNAL — "
+                                                f"{rsi2_signal['reason']}")
+                                elif rsi2_signal["action"] == "hold":
+                                    logger.info(f"RSI(2) position open — "
+                                                f"{rsi2_signal['reason']}")
+                            except Exception as e:
+                                logger.warning(f"RSI(2) check failed (non-fatal): {e}")
                     else:
                         logger.info(f"Market opens in {wait_mins} minutes...")
 

@@ -300,6 +300,20 @@ def cmd_orb():
     run_orb()
 
 
+def cmd_rsi2():
+    """RSI(2) bear-regime mean reversion. Usage: python main.py rsi2 [--status]"""
+    from live.rsi2_trader import check_and_alert, load_state
+    if "--status" in sys.argv:
+        import json
+        print(json.dumps(load_state(), indent=2))
+    else:
+        signal = check_and_alert()
+        print(f"\n  Action: {signal['action'].upper()}")
+        print(f"  {signal['reason']}")
+        print(f"  SPY: ${signal.get('price', '?')} | RSI(2): {signal.get('rsi', '?')} | "
+              f"VIX: {signal.get('vix', '?')}")
+
+
 def cmd_scheduler():
     from live.scheduler import job
     import schedule, time
@@ -504,6 +518,7 @@ COMMANDS = {
     "ticker":           cmd_ticker,
     "broker":           cmd_broker,
     "orb":              cmd_orb,
+    "rsi2":             cmd_rsi2,
     "scheduler":        cmd_scheduler,
     "retrain":          cmd_retrain,
     "retrain_log":      cmd_retrain_log,
