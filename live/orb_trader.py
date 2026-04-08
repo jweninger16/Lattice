@@ -1552,7 +1552,7 @@ class MultiORBTrader:
         or_range = state["or_range"]
         trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
         stop_price = round(state["or_high"] - or_range * ORBConfig.STOP_MULT, 2)
-        entry_price = state["or_high"]
+        planned_entry = state["or_high"]  # Theoretical breakout level
 
         # Entry: market buy
         parent = MarketOrder("BUY", qty)
@@ -1611,6 +1611,22 @@ class MultiORBTrader:
             logger.error(f"{ticker}: order placement failed: {e}")
             return False
 
+        # ── Extract actual fill price from IBKR ──────────────────
+        # Market orders fill at the ask, NOT at or_high. Use the real fill
+        # for P&L tracking, trailing stop initialization, and Discord alerts.
+        fill_price = parent_trade.orderStatus.avgFillPrice
+        if fill_price and fill_price > 0:
+            entry_price = fill_price
+            slippage = entry_price - planned_entry
+            if abs(slippage) > 0.001:
+                logger.info(f"{ticker}: filled @ ${entry_price:.2f} "
+                            f"(vs breakout ${planned_entry:.2f}, "
+                            f"slip {'+'if slippage>0 else ''}{slippage:.2f})")
+        else:
+            # Fallback: use the scanner's latest price (better than or_high)
+            entry_price = price
+            logger.warning(f"{ticker}: no fill price from IBKR, using scanner price ${price:.2f}")
+
         # ── Only record position AFTER bracket is confirmed accepted ──
         self.positions[ticker] = {
             "direction": direction,
@@ -1628,22 +1644,27 @@ class MultiORBTrader:
         self.trades_today += 1
         state["breakout_detected"] = True
 
-        logger.info(f"ENTRY: LONG {qty} {ticker} @ ~${price:.2f} "
+        logger.info(f"ENTRY: LONG {qty} {ticker} @ ${entry_price:.2f} "
                     f"(vol {vol_ratio:.1f}x) | initial stop=${stop_price:.2f} | "
                     f"trail=${trail_amt:.2f} ({ORBConfig.TRAIL_MULT}x OR) | "
                     f"trade {self.trades_today}/{self.max_trades}")
 
         try:
             from live.alerts import send_discord
+            slip_str = ""
+            slippage = entry_price - planned_entry
+            if abs(slippage) > 0.001:
+                slip_str = f" | slip {'+'if slippage>0 else ''}{slippage:.2f}"
             if fmt_entry:
                 msg = fmt_entry("ORB", ticker, direction, qty,
-                                price, stop_price, None,
+                                entry_price, stop_price, None,
                                 position_size=self.position_size,
                                 extra={"Vol ratio": f"{vol_ratio:.1f}x",
                                        "Trail": f"${trail_amt:.2f}",
+                                       "Slippage": f"{'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else "none",
                                        "Trade": f"{self.trades_today}/{self.max_trades}"})
             else:
-                msg = f"ORB LONG: {qty} {ticker} @ ${price:.2f} (vol {vol_ratio:.1f}x, trail ${trail_amt:.2f})"
+                msg = f"ORB LONG: {qty} {ticker} @ ${entry_price:.2f} (vol {vol_ratio:.1f}x, trail ${trail_amt:.2f}{slip_str})"
             send_discord(msg)
         except Exception:
             pass
