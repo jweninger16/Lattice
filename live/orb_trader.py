@@ -1514,21 +1514,23 @@ class MultiORBTrader:
                             f"(range ${c['state']['or_range']:.2f})")
         return top
 
-    def place_oca_orders(self, candidates):
+    def place_oca_orders(self, candidates, is_initial=False):
         """
-        Place BUY STOP LIMIT order for the #1 ranked candidate.
+        Place BUY STOP LIMIT order for the first viable candidate.
 
         Cash accounts: IBKR holds cash for ALL pending orders simultaneously,
-        even in an OCA group. With ~$1,900 settled cash and $1,900 position size,
-        we can only have ONE pending buy order at a time. The remaining candidates
-        are stored as ranked backups — if the primary order doesn't trigger,
-        we can rotate to the next candidate.
+        so we can only have ONE pending buy order at a time. The full ranked
+        list is stored on the initial call for rotation/swap.
+
+        If the candidate has already broken out (streaming price > or_high),
+        use a limit order at the current price instead of a stop-limit.
         """
         CASH_BUFFER = 1.05
         settled = self.get_settled_cash()
 
-        # Store full ranked list for potential rotation
-        self.oca_candidates_ranked = candidates
+        # Only store full ranked list on initial placement (don't overwrite on swaps)
+        if is_initial:
+            self.oca_candidates_ranked = candidates
 
         placed = 0
         for candidate in candidates:
@@ -1537,29 +1539,47 @@ class MultiORBTrader:
             contract = state["contract"]
             or_high = state["or_high"]
 
-            qty = max(1, int(self.position_size / or_high))
-            cost = qty * or_high
+            # Check if already broken out via streaming
+            current_price = self.get_streaming_price(ticker)
+            already_broke_out = current_price is not None and current_price > or_high
+
+            # Use current price for sizing if already broken out
+            ref_price = current_price if already_broke_out else or_high
+
+            qty = max(1, int(self.position_size / ref_price))
+            cost = qty * ref_price
 
             # Verify cash for this position
             if settled is not None and cost * CASH_BUFFER > settled:
                 old_qty = qty
-                qty = max(1, int(settled / (or_high * CASH_BUFFER)))
+                qty = max(1, int(settled / (ref_price * CASH_BUFFER)))
                 if qty < 1:
                     logger.warning(f"{ticker}: skipped — insufficient settled cash "
-                                   f"${settled:,.2f} for even 1 share @ ${or_high:.2f}")
+                                   f"${settled:,.2f} for even 1 share @ ${ref_price:.2f}")
                     continue
                 logger.info(f"{ticker}: qty {old_qty} → {qty} to fit settled cash")
 
-            trigger_price = round(or_high + ORBConfig.OCA_STOP_OFFSET, 2)
-            limit_price = round(or_high * (1 + ORBConfig.OCA_LIMIT_SLIPPAGE), 2)
+            if already_broke_out:
+                # Already above OR high — use a limit order at current price + slippage cap
+                # (stop-limit would trigger immediately but the OR-based limit is too tight)
+                limit_price = round(current_price * (1 + ORBConfig.OCA_LIMIT_SLIPPAGE), 2)
 
-            order = Order()
-            order.action = "BUY"
-            order.totalQuantity = qty
-            order.orderType = "STP LMT"
-            order.auxPrice = trigger_price    # Stop trigger
-            order.lmtPrice = limit_price      # Max fill price (slippage cap)
-            order.tif = "DAY"
+                order = LimitOrder("BUY", qty, limit_price)
+                order.tif = "IOC"  # Immediate Or Cancel: fill now or not at all
+                order_desc = f"IOC limit=${limit_price:.2f} (price=${current_price:.2f})"
+            else:
+                # Normal pre-breakout: stop-limit at OR high
+                trigger_price = round(or_high + ORBConfig.OCA_STOP_OFFSET, 2)
+                limit_price = round(or_high * (1 + ORBConfig.OCA_LIMIT_SLIPPAGE), 2)
+
+                order = Order()
+                order.action = "BUY"
+                order.totalQuantity = qty
+                order.orderType = "STP LMT"
+                order.auxPrice = trigger_price    # Stop trigger
+                order.lmtPrice = limit_price      # Max fill price (slippage cap)
+                order.tif = "DAY"
+                order_desc = f"STP LMT trigger=${trigger_price:.2f} limit=${limit_price:.2f}"
 
             try:
                 trade = self.ib.placeOrder(contract, order)
@@ -1574,18 +1594,18 @@ class MultiORBTrader:
                 self.oca_trades[ticker] = trade
                 self.oca_placed_time = datetime.now()
                 placed += 1
-                logger.info(f"  Stop-limit placed: {ticker} BUY STP LMT "
-                            f"trigger=${trigger_price:.2f} limit=${limit_price:.2f} "
-                            f"qty={qty}")
+
+                remaining = len([c for c in self.oca_candidates_ranked
+                                 if c["ticker"] != ticker
+                                 and not self.ticker_state.get(c["ticker"], {}).get("breakout_detected")])
+                logger.info(f"  Order placed: {ticker} BUY {order_desc} qty={qty}")
+                logger.info(f"  Active: {ticker} ({remaining} backups)")
                 break  # Cash account: only one pending order at a time
 
             except Exception as e:
                 logger.warning(f"  {ticker}: order failed: {e}, trying next candidate...")
 
-        if placed:
-            logger.info(f"Pre-placed entry active: {list(self.oca_trades.keys())[0]} "
-                        f"({len(candidates)-1} backups ranked)")
-        else:
+        if not placed:
             logger.warning("All candidates failed — falling back to scan mode")
         return placed > 0
 
@@ -2518,7 +2538,7 @@ class MultiORBTrader:
                                     self.ib.sleep(2)  # Let streaming data populate
 
                                 # Place OCA orders
-                                if self.place_oca_orders(oca_candidates):
+                                if self.place_oca_orders(oca_candidates, is_initial=True):
                                     self.oca_mode = True
                                     logger.info(f"Pre-placed stop-limit ACTIVE: "
                                                 f"{list(self.oca_trades.keys())}, "
