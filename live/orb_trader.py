@@ -46,6 +46,17 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, ".")
 
+# Persistent log file (survives browser close, Lattice restart, etc.)
+_log_dir = Path(__file__).resolve().parent.parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+logger.add(
+    _log_dir / "orb_trader.log",
+    rotation="1 day",
+    retention="30 days",
+    level="INFO",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} - {message}",
+)
+
 # Pre-market intelligence (optional — system works without it)
 try:
     from data.market_intel import MarketIntelCollector, PreMarketBrief
@@ -956,7 +967,7 @@ class ORBTrader:
                     wait_mins = (datetime.combine(date.today(), ORBConfig.MARKET_OPEN) -
                                  datetime.combine(date.today(), current_time)).seconds // 60
                     logger.info(f"Market opens in {wait_mins} minutes. Waiting...")
-                    self.ib.sleep(min(wait_mins * 60, 60))
+                    self.ib.sleep(max(min(wait_mins * 60, 60), 10))
                     continue
 
                 # During opening range formation (9:30 - 9:45)
@@ -2218,7 +2229,7 @@ class MultiORBTrader:
                     else:
                         logger.info(f"Market opens in {wait_mins} minutes...")
 
-                    self.ib.sleep(min(wait_mins * 60, 60))
+                    self.ib.sleep(max(min(wait_mins * 60, 60), 10))
                     continue
 
                 # OR forming (9:30 - 9:45)
