@@ -142,11 +142,12 @@ class ORBConfig:
     FORCE_EXIT = dtime(15, 55)  # Force close at 3:55 PM
     MARKET_CLOSE = dtime(16, 0)
 
-    # OCA pre-placed entry (eliminates breakout detection latency)
+    # Pre-placed stop-limit entry (eliminates breakout detection latency)
     OCA_ENABLED = True           # False = fallback to poll-based scan entry
-    OCA_CANDIDATE_LIMIT = 5      # Pre-place orders for top N candidates after OR ranking
+    OCA_CANDIDATE_LIMIT = 5      # Rank top N candidates (place 1, keep rest as backups)
     OCA_STOP_OFFSET = 0.01       # Trigger = or_high + $0.01
     OCA_LIMIT_SLIPPAGE = 0.001   # Max fill = or_high * 1.001 (0.1% slippage cap)
+    OCA_ROTATION_MINUTES = 15    # Cancel unfilled order and rotate to best candidate after N min
 
     # Streaming market data (eliminates per-poll API calls)
     STREAMING_ENABLED = True     # False = fallback to snapshot pricing
@@ -1180,6 +1181,7 @@ class MultiORBTrader:
         self.oca_mode = False            # True when pre-placed order is active
         self.oca_trades = {}             # {ticker: Trade object from placeOrder}
         self.oca_candidates_ranked = []  # Full ranked list for rotation
+        self.oca_placed_time = None      # When current order was placed (for rotation timer)
 
         # Streaming market data state
         self.streaming_tickers = {}      # {ticker: ib_insync Ticker object (updates in place)}
@@ -1570,6 +1572,7 @@ class MultiORBTrader:
                     continue
 
                 self.oca_trades[ticker] = trade
+                self.oca_placed_time = datetime.now()
                 placed += 1
                 logger.info(f"  Stop-limit placed: {ticker} BUY STP LMT "
                             f"trigger=${trigger_price:.2f} limit=${limit_price:.2f} "
@@ -1586,12 +1589,91 @@ class MultiORBTrader:
             logger.warning("All candidates failed — falling back to scan mode")
         return placed > 0
 
+    def check_rotation(self):
+        """
+        If the current stop-limit hasn't triggered within ROTATION_MINUTES,
+        cancel it and place the best available candidate using streaming prices.
+        """
+        if not self.oca_trades or not self.oca_placed_time:
+            return
+        if not self.oca_candidates_ranked:
+            return
+
+        elapsed = (datetime.now() - self.oca_placed_time).total_seconds() / 60
+        if elapsed < ORBConfig.OCA_ROTATION_MINUTES:
+            return
+
+        current_ticker = list(self.oca_trades.keys())[0]
+        logger.info(f"{current_ticker}: no fill after {elapsed:.0f} min — rotating...")
+
+        # Cancel current order
+        trade = self.oca_trades[current_ticker]
+        try:
+            self.ib.cancelOrder(trade.order)
+            self.ib.sleep(1)
+        except Exception:
+            pass
+        del self.oca_trades[current_ticker]
+        self.ticker_state[current_ticker]["breakout_detected"] = True  # Don't retry this one
+
+        # Find the best remaining candidate using live streaming prices
+        # Prefer tickers whose current price is close to (but below) their OR high
+        # — these are coiling for a breakout. Skip tickers already past their OR high.
+        best = None
+        best_proximity = float('inf')
+
+        for candidate in self.oca_candidates_ranked:
+            t = candidate["ticker"]
+            state = candidate["state"]
+            if t == current_ticker:
+                continue
+            if state.get("breakout_detected"):
+                continue
+
+            price = self.get_streaming_price(t)
+            if price is None:
+                continue
+
+            or_high = state["or_high"]
+            or_low = state["or_low"]
+
+            # Skip if already broken out (price above OR high)
+            if price > or_high:
+                logger.debug(f"  {t}: already above OR high ${or_high:.2f} (price=${price:.2f}), skip")
+                state["breakout_detected"] = True
+                continue
+
+            # Skip if below OR low (broken down, not a long candidate)
+            if price < or_low:
+                logger.debug(f"  {t}: below OR low ${or_low:.2f} (price=${price:.2f}), skip")
+                continue
+
+            # Proximity: how close to breakout (lower = better)
+            proximity = (or_high - price) / or_high
+            if proximity < best_proximity:
+                best_proximity = proximity
+                best = candidate
+
+        if best:
+            logger.info(f"  Rotating to {best['ticker']} "
+                        f"(${self.get_streaming_price(best['ticker']):.2f}, "
+                        f"{best_proximity*100:.2f}% from breakout)")
+            self.oca_candidates_ranked = [c for c in self.oca_candidates_ranked
+                                          if c["ticker"] != current_ticker]
+            self.place_oca_orders([best])
+        else:
+            logger.info("  No viable candidates remaining — falling back to scan mode")
+            self.oca_mode = False
+
     def check_oca_fills(self):
         """
-        Check if any OCA entry orders have filled.
+        Check if the pre-placed stop-limit has filled.
         When a fill is detected: place the initial stop, record the position,
         and begin trail management.
         """
+        # Check for time-based rotation first
+        self.check_rotation()
+
         for ticker, trade in list(self.oca_trades.items()):
             status = trade.orderStatus.status
 
