@@ -1176,10 +1176,10 @@ class MultiORBTrader:
         self.premarket_brief = None
         self.intel_collector = MarketIntelCollector() if MarketIntelCollector else None
 
-        # OCA pre-placed entry state
-        self.oca_mode = False            # True when OCA orders are active
-        self.oca_group_name = None       # e.g., "ORB_20260408"
+        # Pre-placed stop-limit entry state
+        self.oca_mode = False            # True when pre-placed order is active
         self.oca_trades = {}             # {ticker: Trade object from placeOrder}
+        self.oca_candidates_ranked = []  # Full ranked list for rotation
 
         # Streaming market data state
         self.streaming_tickers = {}      # {ticker: ib_insync Ticker object (updates in place)}
@@ -1514,16 +1514,19 @@ class MultiORBTrader:
 
     def place_oca_orders(self, candidates):
         """
-        Place BUY STOP LIMIT orders for top candidates in an OCA group.
-        IBKR triggers at exact breakout tick — zero detection latency.
-        OCA cancels remaining orders when the first one fills.
-        """
-        self.oca_group_name = f"ORB_{date.today().strftime('%Y%m%d')}"
+        Place BUY STOP LIMIT order for the #1 ranked candidate.
 
-        # Cash check: OCA orders are one-at-a-time (OCA cancels rest on fill),
-        # but verify we have enough for at least one position
+        Cash accounts: IBKR holds cash for ALL pending orders simultaneously,
+        even in an OCA group. With ~$1,900 settled cash and $1,900 position size,
+        we can only have ONE pending buy order at a time. The remaining candidates
+        are stored as ranked backups — if the primary order doesn't trigger,
+        we can rotate to the next candidate.
+        """
         CASH_BUFFER = 1.05
         settled = self.get_settled_cash()
+
+        # Store full ranked list for potential rotation
+        self.oca_candidates_ranked = candidates
 
         placed = 0
         for candidate in candidates:
@@ -1535,15 +1538,15 @@ class MultiORBTrader:
             qty = max(1, int(self.position_size / or_high))
             cost = qty * or_high
 
-            # Verify cash for this position size
+            # Verify cash for this position
             if settled is not None and cost * CASH_BUFFER > settled:
                 old_qty = qty
                 qty = max(1, int(settled / (or_high * CASH_BUFFER)))
                 if qty < 1:
-                    logger.warning(f"{ticker}: OCA skipped — insufficient settled cash "
+                    logger.warning(f"{ticker}: skipped — insufficient settled cash "
                                    f"${settled:,.2f} for even 1 share @ ${or_high:.2f}")
                     continue
-                logger.info(f"{ticker}: OCA qty {old_qty} → {qty} to fit settled cash")
+                logger.info(f"{ticker}: qty {old_qty} → {qty} to fit settled cash")
 
             trigger_price = round(or_high + ORBConfig.OCA_STOP_OFFSET, 2)
             limit_price = round(or_high * (1 + ORBConfig.OCA_LIMIT_SLIPPAGE), 2)
@@ -1555,25 +1558,32 @@ class MultiORBTrader:
             order.auxPrice = trigger_price    # Stop trigger
             order.lmtPrice = limit_price      # Max fill price (slippage cap)
             order.tif = "DAY"
-            order.ocaGroup = self.oca_group_name
-            order.ocaType = 1  # Cancel remaining on fill
 
             try:
                 trade = self.ib.placeOrder(contract, order)
+                self.ib.sleep(2)
+
+                # Verify IBKR accepted the order
+                if trade.orderStatus.status in ("Cancelled", "Inactive"):
+                    logger.warning(f"  {ticker}: order REJECTED (status={trade.orderStatus.status}), "
+                                   f"trying next candidate...")
+                    continue
+
                 self.oca_trades[ticker] = trade
                 placed += 1
-                logger.info(f"  OCA placed: {ticker} BUY STP LMT "
+                logger.info(f"  Stop-limit placed: {ticker} BUY STP LMT "
                             f"trigger=${trigger_price:.2f} limit=${limit_price:.2f} "
-                            f"qty={qty} (group={self.oca_group_name})")
+                            f"qty={qty}")
+                break  # Cash account: only one pending order at a time
+
             except Exception as e:
-                logger.warning(f"  {ticker}: OCA order failed: {e}")
+                logger.warning(f"  {ticker}: order failed: {e}, trying next candidate...")
 
-            # Throttle between order placements
-            if placed % 3 == 0:
-                self.ib.sleep(0.5)
-
-        logger.info(f"OCA orders placed: {placed}/{len(candidates)} "
-                     f"(group={self.oca_group_name})")
+        if placed:
+            logger.info(f"Pre-placed entry active: {list(self.oca_trades.keys())[0]} "
+                        f"({len(candidates)-1} backups ranked)")
+        else:
+            logger.warning("All candidates failed — falling back to scan mode")
         return placed > 0
 
     def check_oca_fills(self):
@@ -1597,7 +1607,7 @@ class MultiORBTrader:
                 qty = int(trade.orderStatus.filled) or trade.order.totalQuantity
 
                 slippage = fill_price - or_high
-                logger.info(f"OCA FILL: {ticker} {qty} shares @ ${fill_price:.2f} "
+                logger.info(f"STOP-LIMIT FILL: {ticker} {qty} shares @ ${fill_price:.2f} "
                             f"(breakout=${or_high:.2f}, slip={'+'if slippage>0 else ''}"
                             f"{slippage:.2f})")
 
@@ -1645,7 +1655,7 @@ class MultiORBTrader:
                 self.trades_today += 1
                 state["breakout_detected"] = True
 
-                logger.info(f"ENTRY (OCA): LONG {qty} {ticker} @ ${fill_price:.2f} | "
+                logger.info(f"ENTRY: LONG {qty} {ticker} @ ${fill_price:.2f} | "
                             f"stop=${stop_price:.2f} | trail=${trail_amt:.2f} "
                             f"({ORBConfig.TRAIL_MULT}x OR) | "
                             f"trade {self.trades_today}/{self.max_trades}")
@@ -1658,12 +1668,12 @@ class MultiORBTrader:
                         msg = fmt_entry("ORB", ticker, "long", qty,
                                         fill_price, stop_price, None,
                                         position_size=self.position_size,
-                                        extra={"Entry": "OCA stop-limit",
+                                        extra={"Entry": "stop-limit",
                                                "Slippage": f"{'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else "none",
                                                "Trail": f"${trail_amt:.2f}",
                                                "Trade": f"{self.trades_today}/{self.max_trades}"})
                     else:
-                        msg = (f"ORB LONG (OCA): {qty} {ticker} @ ${fill_price:.2f}"
+                        msg = (f"ORB LONG: {qty} {ticker} @ ${fill_price:.2f}"
                                f"{slip_str} | stop=${stop_price:.2f} | "
                                f"trail=${trail_amt:.2f}")
                     send_discord(msg)
@@ -1673,21 +1683,30 @@ class MultiORBTrader:
                 del self.oca_trades[ticker]
 
             elif status in ("Cancelled", "Inactive"):
-                logger.info(f"{ticker}: OCA order {status.lower()} "
-                            f"(another OCA filled or rejected)")
+                logger.warning(f"{ticker}: stop-limit order {status.lower()}")
                 del self.oca_trades[ticker]
 
+                # Rotate to next ranked candidate
+                if self.oca_candidates_ranked:
+                    remaining = [c for c in self.oca_candidates_ranked
+                                 if c["ticker"] != ticker
+                                 and not self.ticker_state.get(c["ticker"], {}).get("breakout_detected")]
+                    if remaining:
+                        logger.info(f"Rotating to next candidate: {remaining[0]['ticker']}")
+                        self.oca_candidates_ranked = remaining
+                        self.place_oca_orders(remaining)
+
     def cancel_oca_orders(self):
-        """Cancel all unfilled OCA orders (called at 2 PM cutoff or EOD)."""
+        """Cancel all unfilled pre-placed orders (called at 2 PM cutoff or EOD)."""
         if not self.oca_trades:
             return
-        logger.info(f"Cancelling {len(self.oca_trades)} unfilled OCA orders...")
+        logger.info(f"Cancelling {len(self.oca_trades)} unfilled pre-placed orders...")
         for ticker, trade in list(self.oca_trades.items()):
             try:
                 self.ib.cancelOrder(trade.order)
-                logger.info(f"  {ticker}: OCA order cancelled")
+                logger.info(f"  {ticker}: order cancelled")
             except Exception as e:
-                logger.warning(f"  {ticker}: OCA cancel failed: {e}")
+                logger.warning(f"  {ticker}: cancel failed: {e}")
         self.oca_trades.clear()
 
     # ── Streaming Market Data ────────────────────────────────────────
@@ -2271,7 +2290,8 @@ class MultiORBTrader:
                                 # Place OCA orders
                                 if self.place_oca_orders(oca_candidates):
                                     self.oca_mode = True
-                                    logger.info(f"OCA mode ACTIVE: {len(self.oca_trades)} orders, "
+                                    logger.info(f"Pre-placed stop-limit ACTIVE: "
+                                                f"{list(self.oca_trades.keys())}, "
                                                 f"{len(self.streaming_tickers)} streaming")
                                 else:
                                     logger.warning("OCA placement failed — "
