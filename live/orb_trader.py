@@ -154,6 +154,11 @@ class ORBConfig:
     FAST_CHECK_INTERVAL = 1.5    # Trail update interval when positions open (seconds)
     SLOW_CHECK_INTERVAL = 5      # Scan interval when no positions (seconds)
 
+    # Trail floor: minimum trail distance as % of entry price
+    # Prevents sub-dime trailing stops on low-priced stocks
+    # Research: 0.15% floor on <$50 stocks -> 71% WR, 5.1 PF (vs 57%/3.7 without)
+    MIN_TRAIL_PCT = 0.15
+
     # Monitoring (legacy fallback)
     CHECK_INTERVAL = 10      # Check every 10 seconds during active trading
 
@@ -1445,10 +1450,14 @@ class MultiORBTrader:
                 skipped_data += 1
                 continue
 
+            # Last OR bar's close = where price was at end of opening range
+            or_close = or_bars[-1].close
+
             self.ticker_state[ticker] = {
                 "or_high": or_high,
                 "or_low": or_low,
                 "or_range": or_range,
+                "or_close": or_close,
                 "or_avg_volume": or_avg_volume,
                 "contract": contract,
                 "breakout_detected": False,
@@ -1467,8 +1476,17 @@ class MultiORBTrader:
     def rank_oca_candidates(self):
         """
         Rank all tickers with computed ORs for OCA order placement.
-        Uses OR volume + pre-market intel to select top N candidates.
-        Returns list of dicts: [{ticker, state, qty, score}]
+
+        Research (19d, 87 stocks): proximity-based ranking dramatically
+        outperforms vol_ratio:
+          vol_ratio:  42% WR, 1.25 PF, +0.04% avg
+          proximity:  79% WR, 23.3 PF, +0.42% avg
+
+        Score = 60% proximity (price coiling near OR high)
+              + 20% OR width (wider range = more room to run)
+              + 20% volume quality / intel
+
+        Returns list of dicts: [{ticker, state, score}]
         """
         candidates = []
         for ticker, state in self.ticker_state.items():
@@ -1479,28 +1497,47 @@ class MultiORBTrader:
             if or_avg_vol <= 0:
                 continue
 
-            # Base score: OR average volume (proxy for breakout likelihood)
-            vol_score = min(or_avg_vol / 50000, 1.0)  # Normalize
+            or_high = state["or_high"]
+            or_low = state["or_low"]
+            or_range = state["or_range"]
+            or_close = state.get("or_close", (or_high + or_low) / 2)
 
-            # Intel score from pre-market brief
-            intel_score = 0.0
-            skip = False
+            # Skip earnings-day tickers
             if self.premarket_brief and self.premarket_brief.gap_rankings is not None:
-                rankings = self.premarket_brief.gap_rankings
                 skip_set = self.premarket_brief.skip_tickers or set()
                 if ticker in skip_set:
-                    continue  # Skip earnings-day tickers
+                    continue
+
+            # Proximity: how close is the OR close to the OR high?
+            # 1.0 = closed right at the high (coiling), 0.0 = closed at the low
+            proximity = (or_close - or_low) / or_range if or_range > 0 else 0
+            proximity = max(0, min(1, proximity))
+
+            # OR width: wider range = more room for trail to work
+            or_mid = (or_high + or_low) / 2
+            or_width_pct = or_range / or_mid * 100 if or_mid > 0 else 0
+            width_score = min(or_width_pct / 1.5, 1.0)  # Normalize: 1.5% = max score
+
+            # Volume / intel score
+            vol_score = min(or_avg_vol / 50000, 1.0)
+            intel_score = 0.0
+            if self.premarket_brief and self.premarket_brief.gap_rankings is not None:
+                rankings = self.premarket_brief.gap_rankings
                 match = rankings[rankings["ticker"] == ticker]
                 if not match.empty:
                     intel_score = float(match.iloc[0]["intel_score"])
+            quality_score = 0.7 * vol_score + 0.3 * intel_score
 
-            # Composite: 70% volume quality + 30% intel
-            composite = 0.7 * vol_score + 0.3 * intel_score
+            # Composite: proximity-heavy (research-validated)
+            composite = (0.60 * proximity +
+                         0.20 * width_score +
+                         0.20 * quality_score)
 
             candidates.append({
                 "ticker": ticker,
                 "state": state,
                 "score": composite,
+                "proximity": proximity,
             })
 
         candidates.sort(key=lambda c: c["score"], reverse=True)
@@ -1509,7 +1546,8 @@ class MultiORBTrader:
         if top:
             logger.info(f"OCA candidates (top {len(top)} of {len(candidates)}):")
             for c in top:
-                logger.info(f"  {c['ticker']}: score={c['score']:.3f}, "
+                logger.info(f"  {c['ticker']}: score={c['score']:.3f} "
+                            f"(prox={c['proximity']:.2f}), "
                             f"OR=${c['state']['or_high']:.2f}-${c['state']['or_low']:.2f} "
                             f"(range ${c['state']['or_range']:.2f})")
         return top
@@ -1864,6 +1902,12 @@ class MultiORBTrader:
                 # Place initial stop (standalone — not bracket-linked)
                 stop_price = round(fill_price - or_range * ORBConfig.STOP_MULT, 2)
                 trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
+                # Trail floor: prevent sub-dime stops on low-priced stocks
+                floor = round(fill_price * ORBConfig.MIN_TRAIL_PCT / 100, 2)
+                if trail_amt < floor:
+                    logger.info(f"{ticker}: Trail floor applied: ${trail_amt:.2f} -> ${floor:.2f} "
+                                f"(MIN_TRAIL_PCT={ORBConfig.MIN_TRAIL_PCT}% on ${fill_price:.2f})")
+                    trail_amt = floor
 
                 initial_stop = StopOrder("SELL", qty, stop_price)
                 initial_stop.tif = "DAY"
@@ -2145,6 +2189,12 @@ class MultiORBTrader:
 
         or_range = state["or_range"]
         trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
+        # Trail floor: prevent sub-dime stops on low-priced stocks
+        floor = round(price * ORBConfig.MIN_TRAIL_PCT / 100, 2)
+        if trail_amt < floor:
+            logger.info(f"{ticker}: Trail floor applied: ${trail_amt:.2f} -> ${floor:.2f} "
+                        f"(MIN_TRAIL_PCT={ORBConfig.MIN_TRAIL_PCT}% on ${price:.2f})")
+            trail_amt = floor
         stop_price = round(state["or_high"] - or_range * ORBConfig.STOP_MULT, 2)
         planned_entry = state["or_high"]  # Theoretical breakout level
 
@@ -2423,6 +2473,20 @@ class MultiORBTrader:
 
         if not self.connect():
             return
+
+        # Dynamic position sizing: use actual settled cash instead of hardcoded value
+        settled = self.get_settled_cash()
+        if settled is not None:
+            usable = round(settled * 0.95, 2)  # 5% buffer for bracket order overhead
+            if usable < self.position_size:
+                logger.info(f"Position size adjusted: ${self.position_size:,.0f} -> ${usable:,.0f} "
+                            f"(settled cash: ${settled:,.2f}, 95% usable)")
+                self.position_size = usable
+            else:
+                logger.info(f"Settled cash: ${settled:,.2f} — position size ${self.position_size:,.0f} OK")
+        else:
+            logger.warning("Could not query settled cash — using configured position size "
+                           f"${self.position_size:,.0f}")
 
         try:
             # Load universe and qualify contracts
