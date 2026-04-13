@@ -159,6 +159,11 @@ class ORBConfig:
     # Research: 0.15% floor on <$50 stocks -> 71% WR, 5.1 PF (vs 57%/3.7 without)
     MIN_TRAIL_PCT = 0.15
 
+    # Minimum OR range as % of price — filters out ranges too tight to survive noise
+    # IP 4/13: $0.13 range on $36 stock (0.36%) -> stopped out in 70 seconds
+    # Require at least 0.40% range so stop/trail have room to breathe
+    MIN_OR_RANGE_PCT = 0.40
+
     # Monitoring (legacy fallback)
     CHECK_INTERVAL = 10      # Check every 10 seconds during active trading
 
@@ -1489,6 +1494,7 @@ class MultiORBTrader:
         Returns list of dicts: [{ticker, state, score}]
         """
         candidates = []
+        skipped_narrow = []
         for ticker, state in self.ticker_state.items():
             if state["breakout_detected"]:
                 continue
@@ -1508,15 +1514,21 @@ class MultiORBTrader:
                 if ticker in skip_set:
                     continue
 
+            # Filter: OR range too narrow -> stop/trail can't survive normal noise
+            or_mid = (or_high + or_low) / 2
+            or_range_pct = or_range / or_mid * 100 if or_mid > 0 else 0
+            if or_range_pct < ORBConfig.MIN_OR_RANGE_PCT:
+                skipped_narrow.append(f"{ticker}({or_range_pct:.2f}%)")
+                continue
+
             # Proximity: how close is the OR close to the OR high?
             # 1.0 = closed right at the high (coiling), 0.0 = closed at the low
             proximity = (or_close - or_low) / or_range if or_range > 0 else 0
             proximity = max(0, min(1, proximity))
 
             # OR width: wider range = more room for trail to work
-            or_mid = (or_high + or_low) / 2
-            or_width_pct = or_range / or_mid * 100 if or_mid > 0 else 0
-            width_score = min(or_width_pct / 1.5, 1.0)  # Normalize: 1.5% = max score
+            # (or_range_pct already computed above for the MIN_OR_RANGE_PCT filter)
+            width_score = min(or_range_pct / 1.5, 1.0)  # Normalize: 1.5% = max score
 
             # Volume / intel score
             vol_score = min(or_avg_vol / 50000, 1.0)
@@ -1540,16 +1552,22 @@ class MultiORBTrader:
                 "proximity": proximity,
             })
 
+        if skipped_narrow:
+            logger.info(f"Filtered {len(skipped_narrow)} tickers with OR range "
+                        f"< {ORBConfig.MIN_OR_RANGE_PCT}%: {', '.join(skipped_narrow[:10])}")
+
         candidates.sort(key=lambda c: c["score"], reverse=True)
         top = candidates[:ORBConfig.OCA_CANDIDATE_LIMIT]
 
         if top:
             logger.info(f"OCA candidates (top {len(top)} of {len(candidates)}):")
             for c in top:
+                or_mid = (c['state']['or_high'] + c['state']['or_low']) / 2
+                rng_pct = c['state']['or_range'] / or_mid * 100 if or_mid > 0 else 0
                 logger.info(f"  {c['ticker']}: score={c['score']:.3f} "
                             f"(prox={c['proximity']:.2f}), "
                             f"OR=${c['state']['or_high']:.2f}-${c['state']['or_low']:.2f} "
-                            f"(range ${c['state']['or_range']:.2f})")
+                            f"(range ${c['state']['or_range']:.2f}, {rng_pct:.2f}%)")
         return top
 
     def place_oca_orders(self, candidates, is_initial=False):
@@ -1768,21 +1786,41 @@ class MultiORBTrader:
         current_or_high = current_state.get("or_high", 0)
         current_price = self.get_streaming_price(current_ticker)
 
-        # ── Check 1: Did another candidate break out? (immediate swap) ──
+        # Build rank lookup: ticker -> rank position (0 = best)
+        rank_of = {c["ticker"]: i for i, c in enumerate(self.oca_candidates_ranked)}
+        current_rank = rank_of.get(current_ticker, 999)
+
+        # ── Check 1: Did a HIGHER-RANKED candidate break out? (immediate swap) ──
+        # Only swap to a ticker ranked at or above the current pick.
+        # This prevents abandoning the #1 pick for a lower-ranked breakout
+        # (e.g., IP 4/13: ranked #2 broke out, bot abandoned #1 PYPL).
         for candidate in self.oca_candidates_ranked:
             t = candidate["ticker"]
             state = candidate["state"]
             if t == current_ticker or state.get("breakout_detected"):
                 continue
 
+            candidate_rank = rank_of.get(t, 999)
+
             price = self.get_streaming_price(t)
             if price is None:
                 continue
 
             or_high = state["or_high"]
-            if price > or_high:
-                logger.info(f"BREAKOUT DETECTED: {t} @ ${price:.2f} "
-                            f"(OR high=${or_high:.2f}) — swapping from {current_ticker}")
+            is_breakout = price > or_high
+
+            if candidate_rank >= current_rank:
+                # Lower-ranked breakout — log but don't swap
+                if is_breakout:
+                    logger.info(f"BREAKOUT IGNORED: {t} (rank #{candidate_rank+1}) @ ${price:.2f} "
+                                f"— keeping {current_ticker} (rank #{current_rank+1})")
+                    state["breakout_detected"] = True  # Mark so we don't log repeatedly
+                continue
+
+            if is_breakout:
+                logger.info(f"BREAKOUT DETECTED: {t} (rank #{candidate_rank+1}) @ ${price:.2f} "
+                            f"(OR high=${or_high:.2f}) — swapping from {current_ticker} "
+                            f"(rank #{current_rank+1})")
 
                 cancelled = self._cancel_current_order()
                 if cancelled:
