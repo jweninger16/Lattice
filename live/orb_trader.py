@@ -1810,11 +1810,12 @@ class MultiORBTrader:
             is_breakout = price > or_high
 
             if candidate_rank >= current_rank:
-                # Lower-ranked breakout — log but don't swap
-                if is_breakout:
+                # Lower-ranked breakout — log but DON'T mark breakout_detected
+                # (they must remain eligible for rotation if #1 pick stalls)
+                if is_breakout and not state.get("breakout_logged"):
                     logger.info(f"BREAKOUT IGNORED: {t} (rank #{candidate_rank+1}) @ ${price:.2f} "
                                 f"— keeping {current_ticker} (rank #{current_rank+1})")
-                    state["breakout_detected"] = True  # Mark so we don't log repeatedly
+                    state["breakout_logged"] = True  # Prevent repeated logging only
                 continue
 
             if is_breakout:
@@ -1871,10 +1872,23 @@ class MultiORBTrader:
             return
 
         # ── Check 3: Time-based rotation fallback ──
+        # If multiple backups already broke out, the #1 pick is stalling —
+        # accelerate rotation (3 min instead of 15)
+        breakout_count = sum(1 for c in self.oca_candidates_ranked
+                             if c["ticker"] != current_ticker
+                             and c["state"].get("breakout_logged"))
+        if breakout_count >= 2:
+            rotation_min = 3  # Accelerated: 2+ breakouts missed
+        else:
+            rotation_min = ORBConfig.OCA_ROTATION_MINUTES
+
         elapsed_min = elapsed_sec / 60
-        if elapsed_min >= ORBConfig.OCA_ROTATION_MINUTES:
-            logger.info(f"{current_ticker}: no fill after {elapsed_min:.0f} min — "
-                        f"forcing rotation...")
+        if elapsed_min >= rotation_min:
+            reason = (f"no fill after {elapsed_min:.0f} min, "
+                      f"{breakout_count} backup breakouts missed"
+                      if breakout_count >= 2
+                      else f"no fill after {elapsed_min:.0f} min")
+            logger.info(f"{current_ticker}: {reason} — forcing rotation...")
 
             cancelled = self._cancel_current_order()
             if cancelled:
