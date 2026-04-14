@@ -2373,8 +2373,24 @@ class MultiORBTrader:
                     price = self.get_streaming_price(ticker)
                 else:
                     price = self.get_current_price(pos["contract"])
+                # Trail activation threshold: don't ratchet until price reaches
+                # entry + trail_amt. This keeps the wide initial stop in place
+                # while the breakout develops, preventing premature stop-tightening
+                # on tiny moves (NFLX 4/14: $0.02 move tightened stop from -0.94% to -0.27%).
+                trail_activation = pos["entry"] + pos["trail_amt"]
                 if price and price > pos.get("highest", pos["entry"]):
                     pos["highest"] = price
+
+                    if price < trail_activation:
+                        # Price is up but hasn't reached activation threshold —
+                        # keep initial stop, just track the high
+                        if not pos.get("activation_logged"):
+                            logger.debug(f"{ticker}: price ${price:.2f} < trail activation "
+                                         f"${trail_activation:.2f} — keeping initial stop "
+                                         f"${pos['stop']:.2f}")
+                            pos["activation_logged"] = True
+                        continue
+
                     new_stop = round(price - pos["trail_amt"], 2)
                     if new_stop > pos["stop"]:
                         # Modify the stop order to the new higher price
@@ -2390,9 +2406,9 @@ class MultiORBTrader:
                             pos["stop"] = new_stop
                             if not pos.get("trail_active"):
                                 pos["trail_active"] = True
-                                logger.info(f"{ticker}: trail activated | "
-                                            f"stop ${old_stop:.2f} -> ${new_stop:.2f} "
-                                            f"(high ${price:.2f})")
+                                logger.info(f"{ticker}: trail activated @ ${price:.2f} "
+                                            f"(threshold ${trail_activation:.2f}) | "
+                                            f"stop ${old_stop:.2f} -> ${new_stop:.2f}")
                             else:
                                 logger.debug(f"{ticker}: trail updated ${old_stop:.2f} -> "
                                              f"${new_stop:.2f} (high ${price:.2f})")
