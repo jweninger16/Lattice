@@ -1790,45 +1790,45 @@ class MultiORBTrader:
         rank_of = {c["ticker"]: i for i, c in enumerate(self.oca_candidates_ranked)}
         current_rank = rank_of.get(current_ticker, 999)
 
-        # ── Check 1: Did a HIGHER-RANKED candidate break out? (immediate swap) ──
-        # Only swap to a ticker ranked at or above the current pick.
-        # This prevents abandoning the #1 pick for a lower-ranked breakout
-        # (e.g., IP 4/13: ranked #2 broke out, bot abandoned #1 PYPL).
+        # ── Check 1: Did any candidate break out? ──────────────────────
+        # Collect ALL breakouts, then pick the highest-ranked one.
+        # Ranking is a tiebreaker — not a lock on #1.
+        # The MIN_OR_RANGE_PCT filter already prevents tiny-range duds;
+        # rank-locking caused the bot to sit idle while real trades fired
+        # (AVGO 4/14: #1 never triggered, #2-#5 all broke out and were ignored).
+        breakouts = []
         for candidate in self.oca_candidates_ranked:
             t = candidate["ticker"]
             state = candidate["state"]
             if t == current_ticker or state.get("breakout_detected"):
                 continue
 
-            candidate_rank = rank_of.get(t, 999)
-
             price = self.get_streaming_price(t)
             if price is None:
                 continue
 
             or_high = state["or_high"]
-            is_breakout = price > or_high
+            if price > or_high:
+                candidate_rank = rank_of.get(t, 999)
+                breakouts.append((candidate_rank, candidate, price))
 
-            if candidate_rank >= current_rank:
-                # Lower-ranked breakout — log but DON'T mark breakout_detected
-                # (they must remain eligible for rotation if #1 pick stalls)
-                if is_breakout and not state.get("breakout_logged"):
-                    logger.info(f"BREAKOUT IGNORED: {t} (rank #{candidate_rank+1}) @ ${price:.2f} "
-                                f"— keeping {current_ticker} (rank #{current_rank+1})")
-                    state["breakout_logged"] = True  # Prevent repeated logging only
-                continue
+        if breakouts:
+            # Take the highest-ranked breakout (lowest rank number)
+            breakouts.sort(key=lambda x: x[0])
+            best_rank, best_candidate, best_price = breakouts[0]
+            t = best_candidate["ticker"]
 
-            if is_breakout:
-                logger.info(f"BREAKOUT DETECTED: {t} (rank #{candidate_rank+1}) @ ${price:.2f} "
-                            f"(OR high=${or_high:.2f}) — swapping from {current_ticker} "
-                            f"(rank #{current_rank+1})")
+            logger.info(f"BREAKOUT DETECTED: {t} (rank #{best_rank+1}) @ ${best_price:.2f} "
+                        f"(OR high=${best_candidate['state']['or_high']:.2f}) — "
+                        f"swapping from {current_ticker} (rank #{current_rank+1})")
+            if len(breakouts) > 1:
+                others = [f"{b[1]['ticker']}(#{b[0]+1})" for b in breakouts[1:]]
+                logger.info(f"  Also broke out: {', '.join(others)}")
 
-                cancelled = self._cancel_current_order()
-                if cancelled:
-                    # Place stop-limit on the breakout ticker (will trigger immediately
-                    # since price is already above trigger)
-                    self.place_oca_orders([candidate])
-                return
+            cancelled = self._cancel_current_order()
+            if cancelled:
+                self.place_oca_orders([best_candidate])
+            return
 
         # ── Check 2: Is another candidate a better preemptive bet? ──
         # Only consider swapping if the current order has been sitting for at
@@ -1872,23 +1872,10 @@ class MultiORBTrader:
             return
 
         # ── Check 3: Time-based rotation fallback ──
-        # If multiple backups already broke out, the #1 pick is stalling —
-        # accelerate rotation (3 min instead of 15)
-        breakout_count = sum(1 for c in self.oca_candidates_ranked
-                             if c["ticker"] != current_ticker
-                             and c["state"].get("breakout_logged"))
-        if breakout_count >= 2:
-            rotation_min = 3  # Accelerated: 2+ breakouts missed
-        else:
-            rotation_min = ORBConfig.OCA_ROTATION_MINUTES
-
         elapsed_min = elapsed_sec / 60
-        if elapsed_min >= rotation_min:
-            reason = (f"no fill after {elapsed_min:.0f} min, "
-                      f"{breakout_count} backup breakouts missed"
-                      if breakout_count >= 2
-                      else f"no fill after {elapsed_min:.0f} min")
-            logger.info(f"{current_ticker}: {reason} — forcing rotation...")
+        if elapsed_min >= ORBConfig.OCA_ROTATION_MINUTES:
+            logger.info(f"{current_ticker}: no fill after {elapsed_min:.0f} min — "
+                        f"forcing rotation...")
 
             cancelled = self._cancel_current_order()
             if cancelled:
