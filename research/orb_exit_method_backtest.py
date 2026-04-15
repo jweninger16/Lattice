@@ -229,6 +229,61 @@ def simulate_trade(post_or_bars, entry_price, or_data, method, params):
             "bars_held": len(post_or_bars),
         }
 
+    elif method == "decay_trail":
+        # Decaying trail: gap starts wide and shrinks based on stagnation time.
+        # Gap resets to full width on each new high — only decays when stagnating.
+        # At decay_minutes of stagnation, gap = 0 = exit at highest price.
+        initial_gap_pct = params.get("gap_pct", 0.5)  # Initial gap as % of entry
+        decay_minutes = params.get("decay_min", 30)    # Minutes of stagnation to fully decay
+        max_hold = params.get("max_hold", 120)         # Absolute max hold (backstop)
+
+        initial_gap = entry_price * initial_gap_pct / 100
+        highest = entry_price
+        bars_since_new_high = 0
+
+        for i, (_, bar) in enumerate(post_or_bars.iterrows()):
+            # Hard stop at OR low always active
+            if bar["low"] <= stop:
+                return {
+                    "exit_price": stop,
+                    "exit_reason": "stop",
+                    "bars_held": i,
+                }
+
+            # Max hold backstop
+            if i >= max_hold:
+                return {
+                    "exit_price": bar["open"],
+                    "exit_reason": "max_hold",
+                    "bars_held": i,
+                }
+
+            # Track new highs
+            if bar["high"] > highest:
+                highest = bar["high"]
+                bars_since_new_high = 0
+            else:
+                bars_since_new_high += 1
+
+            # Decay the gap based on stagnation time
+            decay_pct = min(bars_since_new_high / decay_minutes, 1.0)
+            current_gap = initial_gap * (1.0 - decay_pct)
+            trail_stop = round(highest - current_gap, 2)
+
+            # Only apply trail stop if it's above OR low (don't widen stop)
+            if trail_stop > stop and bar["low"] <= trail_stop:
+                return {
+                    "exit_price": trail_stop,
+                    "exit_reason": "decay_trail",
+                    "bars_held": i,
+                }
+
+        return {
+            "exit_price": post_or_bars.iloc[-1]["close"],
+            "exit_reason": "eod",
+            "bars_held": len(post_or_bars),
+        }
+
 
 def rank_candidates(candidates):
     """Rank by proximity (same as live bot)."""
@@ -276,18 +331,25 @@ def run_backtest():
 
     # Define methods to test
     methods = [
-        ("Bracket 1.5R", "fixed_bracket", {"rr_mult": 1.5}),
-        ("Bracket 2R", "fixed_bracket", {"rr_mult": 2.0}),
-        ("Bracket 3R", "fixed_bracket", {"rr_mult": 3.0}),
-        ("Bracket 1.5R+30m", "fixed_bracket", {"rr_mult": 1.5, "time_stop_min": 30}),
+        # Baselines
         ("Bracket 2R+30m", "fixed_bracket", {"rr_mult": 2.0, "time_stop_min": 30}),
-        ("Bracket 2R+60m", "fixed_bracket", {"rr_mult": 2.0, "time_stop_min": 60}),
-        ("Trail 0.3x (old)", "trail_old", {"trail_mult": 0.3}),
-        ("Trail 0.3x (threshold)", "trail_threshold", {"trail_mult": 0.3}),
-        ("Trail 0.5x (threshold)", "trail_threshold", {"trail_mult": 0.5}),
-        ("Time 15m", "time_exit", {"exit_min": 15}),
         ("Time 30m", "time_exit", {"exit_min": 30}),
-        ("Time 60m", "time_exit", {"exit_min": 60}),
+        ("Trail 0.3x (old)", "trail_old", {"trail_mult": 0.3}),
+
+        # Decaying trail: sweep gap sizes and decay windows
+        # gap_pct = initial trail width as % of entry price
+        # decay_min = minutes of stagnation before gap reaches zero
+        ("Decay 0.3% / 15m", "decay_trail", {"gap_pct": 0.3, "decay_min": 15}),
+        ("Decay 0.3% / 30m", "decay_trail", {"gap_pct": 0.3, "decay_min": 30}),
+        ("Decay 0.3% / 45m", "decay_trail", {"gap_pct": 0.3, "decay_min": 45}),
+        ("Decay 0.5% / 15m", "decay_trail", {"gap_pct": 0.5, "decay_min": 15}),
+        ("Decay 0.5% / 30m", "decay_trail", {"gap_pct": 0.5, "decay_min": 30}),
+        ("Decay 0.5% / 45m", "decay_trail", {"gap_pct": 0.5, "decay_min": 45}),
+        ("Decay 0.7% / 30m", "decay_trail", {"gap_pct": 0.7, "decay_min": 30}),
+        ("Decay 0.7% / 45m", "decay_trail", {"gap_pct": 0.7, "decay_min": 45}),
+        ("Decay 1.0% / 30m", "decay_trail", {"gap_pct": 1.0, "decay_min": 30}),
+        ("Decay 1.0% / 45m", "decay_trail", {"gap_pct": 1.0, "decay_min": 45}),
+        ("Decay 1.0% / 60m", "decay_trail", {"gap_pct": 1.0, "decay_min": 60}),
     ]
 
     # Run for each trade-per-day count
