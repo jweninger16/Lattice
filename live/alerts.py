@@ -127,7 +127,11 @@ def format_morning_brief(
     sh_action: str = None,
     vix_context: dict = None,
 ) -> str:
-    """Formats the morning briefing message."""
+    """
+    Formats the morning briefing message.
+
+    Always shows ALL positions (holds + exits + SH) so nothing is invisible.
+    """
     today = datetime.now().strftime("%a %b %d").replace(" 0", " ")
     total_return = (portfolio_value / initial_capital - 1) * 100
 
@@ -138,33 +142,38 @@ def format_morning_brief(
     vix_str = ""
     if vix_context and vix_context.get("vix_current"):
         vix_str = f" | VIX {vix_context['vix_current']:.0f} ({vix_context['vix_regime']})"
+
     if regime_ok:
         lines.append(f"Regime: FAVORABLE ({pct_above_sma50:.0f}% > SMA50{vix_str})")
-        if sh_action == "SELL":
-            lines.append(f"HEDGE: SELL SH (regime recovered)")
-            lines.append("")
     else:
         lines.append(f"Regime: UNFAVORABLE ({pct_above_sma50:.0f}% > SMA50{vix_str})")
-        if sh_action == "BUY":
-            lines.append(f"HEDGE: BUY SH (~50% of cash)")
-        elif sh_action is None:
-            lines.append(f"HEDGE: Holding SH")
-        lines.append(f"Positions: {slots_used}/{max_slots} held")
-        lines.append(f"Portfolio: ${portfolio_value:,.0f} ({total_return:+.1f}%)")
-        return "\n".join(lines)
+
+    # SH hedge action — always show near the top
+    if sh_action == "BUY":
+        lines.append(f"HEDGE: BUY SH (~50% of cash)")
+    elif sh_action == "SELL":
+        lines.append(f"HEDGE: SELL SH (regime recovered)")
 
     lines.append("")
 
+    # Separate positions by type (exclude SH from stock list)
+    non_sh = [p for p in positions if p.get("ticker") != "SH"]
+    sh_pos = [p for p in positions if p.get("ticker") == "SH"]
+
+    exits = [p for p in non_sh if p.get("action") in ("SELL_STOP", "SELL_TIME", "SELL_TARGET")]
+    holds = [p for p in non_sh if p.get("action") == "HOLD"]
+
     # Exits needed
-    exits = [p for p in positions if p.get("action") in ("SELL_STOP", "SELL_TIME", "SELL_TARGET")]
     if exits:
         for p in exits:
-            reason = {"SELL_STOP": "stop hit", "SELL_TIME": "time exit", "SELL_TARGET": "target hit"}[p["action"]]
-            ret = (p["current_price"] / p["entry_price"] - 1) * 100
+            action = p.get("action", "SELL")
+            reason_map = {"SELL_STOP": "stop hit", "SELL_TIME": "time exit", "SELL_TARGET": "target hit"}
+            reason = reason_map.get(action, "sell")
+            ret = (p.get("current_price", p["entry_price"]) / p["entry_price"] - 1) * 100
             lines.append(f"SELL: {p['ticker']} ({reason} {ret:+.1f}%)")
         lines.append("")
 
-    # New buys
+    # New buys (only if regime favorable)
     slots_available = max_slots - slots_used + len(exits)
     buys = signals[:slots_available]
     if buys and regime_ok:
@@ -175,13 +184,23 @@ def format_morning_brief(
     elif regime_ok and not buys:
         lines.append("No new signals today")
         lines.append("")
+    elif not regime_ok:
+        lines.append("No new trades (regime unfavorable)")
+        lines.append("")
 
-    # Holds
-    holds = [p for p in positions if p.get("action") == "HOLD"]
+    # ALL holds — always show so user knows what they're sitting on
     if holds:
         for p in holds:
-            ret = (p["current_price"] / p["entry_price"] - 1) * 100
-            lines.append(f"HOLD: {p['ticker']} {ret:+.1f}% (exit {p['exit_date']})")
+            ret = (p.get("current_price", p["entry_price"]) / p["entry_price"] - 1) * 100
+            exit_dt = p.get("planned_exit", p.get("exit_date", "TBD"))
+            lines.append(f"HOLD: {p['ticker']} {ret:+.1f}% (exit {exit_dt})")
+        lines.append("")
+
+    # SH hedge status
+    if sh_pos and sh_action != "SELL":
+        p = sh_pos[0]
+        ret = (p.get("current_price", p["entry_price"]) / p["entry_price"] - 1) * 100
+        lines.append(f"SH: {ret:+.1f}% (hedge active)")
         lines.append("")
 
     # Summary
