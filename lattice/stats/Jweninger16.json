@@ -1,28 +1,16 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-04-14 08:37:47",
-  "balance": 1887.5,
+  "updated": "2026-04-15 08:19:21",
+  "balance": 1881.48,
   "starting_capital": 2000.0,
   "wins": 7,
-  "losses": 9,
-  "total_trades": 17,
-  "total_pnl_usd": -112.5,
+  "losses": 10,
+  "total_trades": 18,
+  "total_pnl_usd": -118.51999999999998,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -5.876310251628149,
+  "max_drawdown_pct": -6.176508721713021,
   "recent_trades": [
-    {
-      "date": "2026-03-30",
-      "ticker": "ALB",
-      "direction": "long",
-      "entry": 180.96,
-      "exit": 178.83,
-      "qty": 3,
-      "pnl_pct": -1.18,
-      "pnl_usd": -6.39,
-      "reason": "stop",
-      "balance_after": 1949.08
-    },
     {
       "date": "2026-03-30",
       "ticker": "DOW",
@@ -130,6 +118,18 @@
       "pnl_usd": -6.37,
       "reason": "stop",
       "balance_after": 1887.5
+    },
+    {
+      "date": "2026-04-14",
+      "ticker": "NFLX",
+      "direction": "long",
+      "entry": 104.09,
+      "exit": 103.86,
+      "qty": 17,
+      "pnl_pct": -0.23,
+      "pnl_usd": -3.99,
+      "reason": "trail",
+      "balance_after": 1881.48
     }
   ],
   "equity_curve": [
@@ -204,6 +204,10 @@
     {
       "date": "2026-04-13",
       "balance": 1887.5
+    },
+    {
+      "date": "2026-04-14",
+      "balance": 1881.48
     }
   ]
 }
