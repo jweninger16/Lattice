@@ -102,9 +102,15 @@ class ORBConfig:
     OR_MINUTES = 2           # Opening range: first 2 minutes (9:30-9:32)
     # Research (1-min bars, 85 stocks, costs): 65.2% WR, 1.99 PF, -5.87% DD
     # Shorter OR = tighter range = more decisive breakouts, fewer EOD exits
-    STOP_MULT = 1.0          # Initial stop = 1.0x opening range
-    TRAIL_MULT = 0.3         # Trailing stop distance = 0.3x opening range
-    # Research: 0.3x trail = 6.69 PF, 67% WR, -1.29% DD (vs 1.64 PF fixed target)
+    # Exit: Bracket 2R + 30-min time stop
+    # Backtest (19d, 87 stocks, 1-min bars, $1900, $5.50 RT):
+    #   1 trade/day: 50% WR, 1.51 PF, +$50, -$36 maxDD
+    #   3 trades/day: 46% WR, 1.24 PF, +$80, -$71 maxDD
+    # Stop at OR low, target at entry + 2x risk, exit at market after 30 min
+    TARGET_RR = 2.0          # Target = entry + risk * 2.0 (risk = entry - OR low)
+    TIME_STOP_MINUTES = 30   # Exit at market after 30 min if neither stop nor target hit
+    STOP_MULT = 1.0          # Legacy — single-ticker bot
+    TRAIL_MULT = 0.3         # Legacy — single-ticker bot (used as target mult)
     MAX_GAP_PCT = 1.0        # Skip if gap > 1.0% (backtest: 1.25 PF vs 1.15 at 0.5%)
     DIRECTION = "long"       # "long" only — cash account, no shorting
 
@@ -151,13 +157,8 @@ class ORBConfig:
 
     # Streaming market data (eliminates per-poll API calls)
     STREAMING_ENABLED = True     # False = fallback to snapshot pricing
-    FAST_CHECK_INTERVAL = 1.5    # Trail update interval when positions open (seconds)
+    FAST_CHECK_INTERVAL = 1.5    # Position check interval when positions open (seconds)
     SLOW_CHECK_INTERVAL = 5      # Scan interval when no positions (seconds)
-
-    # Trail floor: minimum trail distance as % of entry price
-    # Prevents sub-dime trailing stops on low-priced stocks
-    # Research: 0.15% floor on <$50 stocks -> 71% WR, 5.1 PF (vs 57%/3.7 without)
-    MIN_TRAIL_PCT = 0.15
 
     # Minimum OR range as % of price — filters out ranges too tight to survive noise
     # IP 4/13: $0.13 range on $36 stock (0.36%) -> stopped out in 70 seconds
@@ -942,7 +943,7 @@ class ORBTrader:
         logger.info(f"  Ticker: {ORBConfig.TICKER}")
         logger.info(f"  Position size: ${self.position_size:,.0f}")
         logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
-                    f"{ORBConfig.TRAIL_MULT}x trail, {ORBConfig.STOP_MULT}x initial stop, "
+                    f"bracket {ORBConfig.TARGET_RR}R + {ORBConfig.TIME_STOP_MINUTES}m time stop, "
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
         logger.info(f"  Volume confirmation: "
                     f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")
@@ -1938,28 +1939,39 @@ class MultiORBTrader:
                             f"(breakout=${or_high:.2f}, slip={'+'if slippage>0 else ''}"
                             f"{slippage:.2f})")
 
-                # Place initial stop (standalone — not bracket-linked)
-                stop_price = round(fill_price - or_range * ORBConfig.STOP_MULT, 2)
-                trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
-                # Trail floor: prevent sub-dime stops on low-priced stocks
-                floor = round(fill_price * ORBConfig.MIN_TRAIL_PCT / 100, 2)
-                if trail_amt < floor:
-                    logger.info(f"{ticker}: Trail floor applied: ${trail_amt:.2f} -> ${floor:.2f} "
-                                f"(MIN_TRAIL_PCT={ORBConfig.MIN_TRAIL_PCT}% on ${fill_price:.2f})")
-                    trail_amt = floor
+                # Bracket exit: stop at OR low, target at entry + 2x risk
+                stop_price = round(state["or_low"], 2)
+                risk = fill_price - stop_price
+                target_price = round(fill_price + risk * ORBConfig.TARGET_RR, 2)
 
+                # Place stop order
                 initial_stop = StopOrder("SELL", qty, stop_price)
                 initial_stop.tif = "DAY"
                 initial_stop.transmit = True
 
+                # Place target limit order
+                target_order = LimitOrder("SELL", qty, target_price)
+                target_order.tif = "DAY"
+                target_order.transmit = True
+
+                stop_order_id = None
+                target_order_id = None
+
                 try:
                     stop_trade = self.ib.placeOrder(contract, initial_stop)
-                    self.ib.sleep(2)
+                    self.ib.sleep(1)
+                    stop_order_id = initial_stop.orderId
+
+                    target_trade = self.ib.placeOrder(contract, target_order)
+                    self.ib.sleep(1)
+                    target_order_id = target_order.orderId
 
                     # Verify stop was accepted
                     if stop_trade.orderStatus.status in ("Cancelled", "Inactive"):
                         logger.error(f"{ticker}: OCA stop REJECTED — "
                                      f"closing position immediately")
+                        # Cancel target too
+                        self.ib.cancelOrder(target_order)
                         close = MarketOrder("SELL", qty)
                         close.tif = "DAY"
                         self.ib.placeOrder(contract, close)
@@ -1967,30 +1979,31 @@ class MultiORBTrader:
                         self.trades_today += 1
                         continue
                 except Exception as e:
-                    logger.error(f"{ticker}: OCA stop placement failed: {e}")
+                    logger.error(f"{ticker}: OCA bracket placement failed: {e}")
                     del self.oca_trades[ticker]
                     continue
 
-                # Record position (same structure as enter_trade)
+                # Record position
                 self.positions[ticker] = {
                     "direction": "long",
                     "entry": fill_price,
+                    "entry_time": datetime.now(),
                     "qty": qty,
                     "stop": stop_price,
-                    "trail_amt": trail_amt,
-                    "trail_active": False,
-                    "highest": fill_price,
+                    "target": target_price,
                     "order_id": trade.order.orderId,
-                    "stop_order_id": initial_stop.orderId,
-                    "confirmed": True,  # OCA fill = position confirmed
+                    "stop_order_id": stop_order_id,
+                    "target_order_id": target_order_id,
+                    "confirmed": True,
                     "contract": contract,
                 }
                 self.trades_today += 1
                 state["breakout_detected"] = True
 
                 logger.info(f"ENTRY: LONG {qty} {ticker} @ ${fill_price:.2f} | "
-                            f"stop=${stop_price:.2f} | trail=${trail_amt:.2f} "
-                            f"({ORBConfig.TRAIL_MULT}x OR) | "
+                            f"stop=${stop_price:.2f} (OR low) | "
+                            f"target=${target_price:.2f} ({ORBConfig.TARGET_RR}R) | "
+                            f"time stop={ORBConfig.TIME_STOP_MINUTES}m | "
                             f"trade {self.trades_today}/{self.max_trades}")
 
                 # Discord alert
@@ -1999,16 +2012,17 @@ class MultiORBTrader:
                     slip_str = f", slip {'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else ""
                     if fmt_entry:
                         msg = fmt_entry("ORB", ticker, "long", qty,
-                                        fill_price, stop_price, None,
+                                        fill_price, stop_price, target_price,
                                         position_size=self.position_size,
                                         extra={"Entry": "stop-limit",
                                                "Slippage": f"{'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else "none",
-                                               "Trail": f"${trail_amt:.2f}",
+                                               "Target": f"${target_price:.2f} ({ORBConfig.TARGET_RR}R)",
+                                               "Time stop": f"{ORBConfig.TIME_STOP_MINUTES}m",
                                                "Trade": f"{self.trades_today}/{self.max_trades}"})
                     else:
                         msg = (f"ORB LONG: {qty} {ticker} @ ${fill_price:.2f}"
                                f"{slip_str} | stop=${stop_price:.2f} | "
-                               f"trail=${trail_amt:.2f}")
+                               f"target=${target_price:.2f}")
                     send_discord(msg)
                 except Exception:
                     pass
@@ -2226,21 +2240,14 @@ class MultiORBTrader:
                 logger.info(f"{ticker}: Reducing qty {old_qty} → {qty} "
                             f"to fit settled cash ${settled:,.2f} (with 5% bracket buffer)")
 
-        or_range = state["or_range"]
-        trail_amt = round(or_range * ORBConfig.TRAIL_MULT, 2)
-        # Trail floor: prevent sub-dime stops on low-priced stocks
-        floor = round(price * ORBConfig.MIN_TRAIL_PCT / 100, 2)
-        if trail_amt < floor:
-            logger.info(f"{ticker}: Trail floor applied: ${trail_amt:.2f} -> ${floor:.2f} "
-                        f"(MIN_TRAIL_PCT={ORBConfig.MIN_TRAIL_PCT}% on ${price:.2f})")
-            trail_amt = floor
-        stop_price = round(state["or_high"] - or_range * ORBConfig.STOP_MULT, 2)
-        planned_entry = state["or_high"]  # Theoretical breakout level
+        # Bracket exit: stop at OR low, target at entry + 2x risk
+        stop_price = round(state["or_low"], 2)
+        planned_entry = state["or_high"]
 
         # Entry: market buy
         parent = MarketOrder("BUY", qty)
         parent.tif = "DAY"
-        parent.transmit = False
+        parent.transmit = True
 
         try:
             parent_trade = self.ib.placeOrder(contract, parent)
@@ -2250,53 +2257,11 @@ class MultiORBTrader:
                 logger.error(f"{ticker}: entry REJECTED: {parent_trade.orderStatus.status}")
                 return False
 
-            # Initial stop (protects against immediate reversal before trail kicks in)
-            initial_stop = StopOrder("SELL", qty, stop_price)
-            initial_stop.tif = "DAY"
-            initial_stop.parentId = parent_trade.order.orderId
-            initial_stop.transmit = True
-            stop_trade = self.ib.placeOrder(contract, initial_stop)
-
-            # Wait for IBKR to process the full bracket order
-            self.ib.sleep(3)
-
-            # ── Verify bracket was ACCEPTED before recording entry ──
-            # The bracket rejection (Error 201) happens when transmit=True
-            # triggers the full bracket submission. We must re-check BOTH orders.
-            self.ib.sleep(1)  # Extra settle time for IBKR status propagation
-            if parent_trade.orderStatus.status in ("Cancelled", "Inactive"):
-                logger.error(f"{ticker}: bracket order REJECTED after transmit — "
-                             f"parent status: {parent_trade.orderStatus.status}. "
-                             f"Likely insufficient settled cash for bracket overhead.")
-                try:
-                    from live.alerts import send_discord
-                    send_discord(f"⚠️ ORB — {ticker} bracket REJECTED by IBKR (Error 201). "
-                                 f"Settled cash insufficient for bracket overhead.")
-                except Exception:
-                    pass
-                return False
-            if stop_trade.orderStatus.status in ("Cancelled", "Inactive"):
-                logger.error(f"{ticker}: stop order REJECTED — "
-                             f"status: {stop_trade.orderStatus.status}. "
-                             f"Cancelling parent order.")
-                try:
-                    self.ib.cancelOrder(parent_trade.order)
-                except Exception:
-                    pass
-                try:
-                    from live.alerts import send_discord
-                    send_discord(f"⚠️ ORB — {ticker} stop order REJECTED. Parent cancelled.")
-                except Exception:
-                    pass
-                return False
-
         except Exception as e:
             logger.error(f"{ticker}: order placement failed: {e}")
             return False
 
-        # ── Extract actual fill price from IBKR ──────────────────
-        # Market orders fill at the ask, NOT at or_high. Use the real fill
-        # for P&L tracking, trailing stop initialization, and Discord alerts.
+        # Extract actual fill price
         fill_price = parent_trade.orderStatus.avgFillPrice
         if fill_price and fill_price > 0:
             entry_price = fill_price
@@ -2306,21 +2271,57 @@ class MultiORBTrader:
                             f"(vs breakout ${planned_entry:.2f}, "
                             f"slip {'+'if slippage>0 else ''}{slippage:.2f})")
         else:
-            # Fallback: use the scanner's latest price (better than or_high)
             entry_price = price
             logger.warning(f"{ticker}: no fill price from IBKR, using scanner price ${price:.2f}")
 
-        # ── Only record position AFTER bracket is confirmed accepted ──
+        # Compute target from actual fill
+        risk = entry_price - stop_price
+        target_price = round(entry_price + risk * ORBConfig.TARGET_RR, 2)
+
+        # Place stop and target orders (standalone, not bracket-linked)
+        initial_stop = StopOrder("SELL", qty, stop_price)
+        initial_stop.tif = "DAY"
+        initial_stop.transmit = True
+
+        target_order = LimitOrder("SELL", qty, target_price)
+        target_order.tif = "DAY"
+        target_order.transmit = True
+
+        stop_order_id = None
+        target_order_id = None
+
+        try:
+            stop_trade = self.ib.placeOrder(contract, initial_stop)
+            self.ib.sleep(1)
+            stop_order_id = initial_stop.orderId
+
+            target_trade = self.ib.placeOrder(contract, target_order)
+            self.ib.sleep(1)
+            target_order_id = target_order.orderId
+
+            # Verify stop was accepted
+            if stop_trade.orderStatus.status in ("Cancelled", "Inactive"):
+                logger.error(f"{ticker}: stop REJECTED — closing position")
+                self.ib.cancelOrder(target_order)
+                close = MarketOrder("SELL", qty)
+                close.tif = "DAY"
+                self.ib.placeOrder(contract, close)
+                return False
+        except Exception as e:
+            logger.error(f"{ticker}: bracket placement failed: {e}")
+            return False
+
+        # Record position
         self.positions[ticker] = {
             "direction": direction,
             "entry": entry_price,
+            "entry_time": datetime.now(),
             "qty": qty,
             "stop": stop_price,
-            "trail_amt": trail_amt,
-            "trail_active": False,  # Activated once price moves above entry + trail_amt
-            "highest": entry_price,
+            "target": target_price,
             "order_id": parent_trade.order.orderId,
-            "stop_order_id": initial_stop.orderId,
+            "stop_order_id": stop_order_id,
+            "target_order_id": target_order_id,
             "confirmed": False,
             "contract": contract,
         }
@@ -2328,8 +2329,9 @@ class MultiORBTrader:
         state["breakout_detected"] = True
 
         logger.info(f"ENTRY: LONG {qty} {ticker} @ ${entry_price:.2f} "
-                    f"(vol {vol_ratio:.1f}x) | initial stop=${stop_price:.2f} | "
-                    f"trail=${trail_amt:.2f} ({ORBConfig.TRAIL_MULT}x OR) | "
+                    f"(vol {vol_ratio:.1f}x) | stop=${stop_price:.2f} (OR low) | "
+                    f"target=${target_price:.2f} ({ORBConfig.TARGET_RR}R) | "
+                    f"time stop={ORBConfig.TIME_STOP_MINUTES}m | "
                     f"trade {self.trades_today}/{self.max_trades}")
 
         try:
@@ -2340,14 +2342,17 @@ class MultiORBTrader:
                 slip_str = f" | slip {'+'if slippage>0 else ''}{slippage:.2f}"
             if fmt_entry:
                 msg = fmt_entry("ORB", ticker, direction, qty,
-                                entry_price, stop_price, None,
+                                entry_price, stop_price, target_price,
                                 position_size=self.position_size,
                                 extra={"Vol ratio": f"{vol_ratio:.1f}x",
-                                       "Trail": f"${trail_amt:.2f}",
+                                       "Target": f"${target_price:.2f} ({ORBConfig.TARGET_RR}R)",
+                                       "Time stop": f"{ORBConfig.TIME_STOP_MINUTES}m",
                                        "Slippage": f"{'+'if slippage>0 else ''}{slippage:.2f}" if abs(slippage) > 0.001 else "none",
                                        "Trade": f"{self.trades_today}/{self.max_trades}"})
             else:
-                msg = f"ORB LONG: {qty} {ticker} @ ${entry_price:.2f} (vol {vol_ratio:.1f}x, trail ${trail_amt:.2f}{slip_str})"
+                msg = (f"ORB LONG: {qty} {ticker} @ ${entry_price:.2f} "
+                       f"(vol {vol_ratio:.1f}x{slip_str}) | "
+                       f"stop=${stop_price:.2f} | target=${target_price:.2f}")
             send_discord(msg)
         except Exception:
             pass
@@ -2357,7 +2362,7 @@ class MultiORBTrader:
     # ── Position Monitoring ───────────────────────────────────────────
 
     def check_all_positions(self):
-        """Check positions, update trailing stops, detect exits."""
+        """Check positions: time stop, detect stop/target fills."""
         ibkr_positions = {pos.contract.symbol: pos.position
                           for pos in self.ib.positions()}
 
@@ -2368,59 +2373,96 @@ class MultiORBTrader:
             if has_ibkr_pos:
                 pos["confirmed"] = True
 
-                # Update trailing stop: use streaming price (instant) or snapshot (fallback)
-                if ticker in self.streaming_tickers:
-                    price = self.get_streaming_price(ticker)
-                else:
-                    price = self.get_current_price(pos["contract"])
-                # Trail activation threshold: don't ratchet until price reaches
-                # entry + trail_amt. This keeps the wide initial stop in place
-                # while the breakout develops, preventing premature stop-tightening
-                # on tiny moves (NFLX 4/14: $0.02 move tightened stop from -0.94% to -0.27%).
-                trail_activation = pos["entry"] + pos["trail_amt"]
-                if price and price > pos.get("highest", pos["entry"]):
-                    pos["highest"] = price
+                # Time stop: exit at market after TIME_STOP_MINUTES
+                entry_time = pos.get("entry_time")
+                if entry_time:
+                    elapsed_min = (datetime.now() - entry_time).total_seconds() / 60
+                    if elapsed_min >= ORBConfig.TIME_STOP_MINUTES:
+                        logger.info(f"{ticker}: TIME STOP — {elapsed_min:.0f} min elapsed, "
+                                    f"exiting at market")
 
-                    if price < trail_activation:
-                        # Price is up but hasn't reached activation threshold —
-                        # keep initial stop, just track the high
-                        if not pos.get("activation_logged"):
-                            logger.debug(f"{ticker}: price ${price:.2f} < trail activation "
-                                         f"${trail_activation:.2f} — keeping initial stop "
-                                         f"${pos['stop']:.2f}")
-                            pos["activation_logged"] = True
-                        continue
-
-                    new_stop = round(price - pos["trail_amt"], 2)
-                    if new_stop > pos["stop"]:
-                        # Modify the stop order to the new higher price
+                        # Cancel the stop and target orders
                         try:
                             for order in self.ib.openOrders():
-                                if (order.orderId == pos.get("stop_order_id") or
-                                    (order.parentId == pos["order_id"] and
-                                     order.orderType in ("STP", "TRAIL"))):
-                                    order.auxPrice = new_stop
-                                    self.ib.placeOrder(pos["contract"], order)
-                                    break
-                            old_stop = pos["stop"]
-                            pos["stop"] = new_stop
-                            if not pos.get("trail_active"):
-                                pos["trail_active"] = True
-                                logger.info(f"{ticker}: trail activated @ ${price:.2f} "
-                                            f"(threshold ${trail_activation:.2f}) | "
-                                            f"stop ${old_stop:.2f} -> ${new_stop:.2f}")
-                            else:
-                                logger.debug(f"{ticker}: trail updated ${old_stop:.2f} -> "
-                                             f"${new_stop:.2f} (high ${price:.2f})")
+                                if order.orderId in (pos.get("stop_order_id"),
+                                                     pos.get("target_order_id")):
+                                    self.ib.cancelOrder(order)
                         except Exception as e:
-                            logger.warning(f"{ticker}: failed to update stop: {e}")
+                            logger.warning(f"{ticker}: error cancelling bracket: {e}")
+
+                        self.ib.sleep(1)
+
+                        # Market sell
+                        close_order = MarketOrder("SELL", pos["qty"])
+                        close_order.tif = "DAY"
+                        close_trade = self.ib.placeOrder(pos["contract"], close_order)
+                        self.ib.sleep(2)
+
+                        # Get fill price
+                        exit_price = None
+                        if close_trade.orderStatus.status == "Filled":
+                            exit_price = close_trade.orderStatus.avgFillPrice
+                        if not exit_price:
+                            # Fallback: use current price
+                            if ticker in self.streaming_tickers:
+                                exit_price = self.get_streaming_price(ticker)
+                            else:
+                                exit_price = self.get_current_price(pos["contract"])
+                        if not exit_price:
+                            exit_price = pos["entry"]  # Last resort
+
+                        entry = pos["entry"]
+                        pnl = (exit_price - entry) / entry * 100
+                        self.daily_pnl += pnl
+
+                        logger.info(f"{ticker}: time stop exit @ ${exit_price:.2f} | "
+                                    f"P&L: {pnl:+.2f}% | held {elapsed_min:.0f}m")
+                        self.record_trade(ticker, pos["direction"], entry, exit_price,
+                                          pos["qty"], "time_stop")
+                        try:
+                            from live.alerts import send_discord
+                            if fmt_exit:
+                                msg = fmt_exit("ORB", ticker, pos["direction"], pos["qty"],
+                                               entry, exit_price, "time_stop")
+                            else:
+                                msg = f"ORB TIME STOP: {ticker} {pnl:+.2f}% ({elapsed_min:.0f}m)"
+                            send_discord(msg)
+                        except Exception:
+                            pass
+                        closed.append(ticker)
                 continue
 
             if not has_ibkr_pos and pos.get("confirmed"):
-                # Position was confirmed, now gone = stop was hit
+                # Position gone — either stop or target filled
                 entry = pos["entry"]
-                exit_price = pos["stop"]  # Best estimate: the current stop level
-                reason = "trail" if pos.get("trail_active") else "stop"
+
+                # Determine which side filled: check if target was hit
+                # by comparing fill to expected levels
+                reason = "stop"
+                exit_price = pos["stop"]
+
+                # Check if the target order filled
+                try:
+                    for trade in self.ib.trades():
+                        if (trade.order.orderId == pos.get("target_order_id") and
+                                trade.orderStatus.status == "Filled"):
+                            reason = "target"
+                            exit_price = trade.orderStatus.avgFillPrice or pos["target"]
+                            break
+                except Exception:
+                    pass
+
+                # If it was the stop, cancel the target (and vice versa)
+                try:
+                    cancel_id = (pos.get("target_order_id") if reason == "stop"
+                                 else pos.get("stop_order_id"))
+                    if cancel_id:
+                        for order in self.ib.openOrders():
+                            if order.orderId == cancel_id:
+                                self.ib.cancelOrder(order)
+                                break
+                except Exception:
+                    pass
 
                 pnl = (exit_price - entry) / entry * 100
                 self.daily_pnl += pnl
@@ -2516,7 +2558,7 @@ class MultiORBTrader:
         logger.info(f"  Max trades/day: {self.max_trades}")
         logger.info(f"  Max daily exposure: ${self.position_size * self.max_trades:,.0f}")
         logger.info(f"  Strategy: {ORBConfig.OR_MINUTES}min OR, "
-                    f"{ORBConfig.TRAIL_MULT}x trail, {ORBConfig.STOP_MULT}x initial stop, "
+                    f"bracket {ORBConfig.TARGET_RR}R + {ORBConfig.TIME_STOP_MINUTES}m time stop, "
                     f"gap<{ORBConfig.MAX_GAP_PCT}%")
         logger.info(f"  Volume confirmation: "
                     f"{'ON' if ORBConfig.REQUIRE_VOLUME_CONFIRMATION else 'OFF'}")

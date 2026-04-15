@@ -1,13 +1,22 @@
 """
 research/orb_exit_method_backtest.py
---------------------------------------
-Compares exit strategies for the volume-confirmed 2-min ORB:
+------------------------------------
+Head-to-head comparison of ORB exit strategies on 87-stock universe.
+Uses 1-min bars for realistic simulation.
 
-1. BASELINE: Fixed 1.5x target + 1.0x stop (current)
-2. Trailing stop at various distances (no fixed target)
-3. Hybrid: take profit at target, then trail the remainder
+Now that PDT rule is gone and unsettled funds can be reused:
+- Tests multiple trades per day
+- Tests different exit methods
+- Uses $1,900 account with $5.50 round-trip cost
 
-All use 1-min bars, 2-min OR, volume confirmation, long-only, with costs.
+Exit methods tested:
+  A. Fixed bracket: stop at OR low, target at R:R multiple (1.5x, 2x, 3x)
+  B. Fixed bracket + 30-min time stop
+  C. Trailing stop (current live logic, 0.3x OR range)
+  D. Trailing stop with activation threshold (new logic)
+  E. Time-based exit only (exit after N minutes regardless)
+
+Also tests: 1 trade/day vs up to 3 trades/day (sequential, reuse funds)
 
 Usage:
     python research/orb_exit_method_backtest.py
@@ -17,315 +26,434 @@ import sys
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import time as dtime
-from tqdm import tqdm
+from datetime import time as dtime, timedelta
 
 sys.path.insert(0, ".")
 
 CACHE_DIR = Path("data/intraday_cache")
-UNIVERSE_PATH = Path("data/orb_universe.csv")
+UNIVERSE = Path("data/orb_universe.csv")
+POSITION_SIZE = 1900
+RT_COST = 5.50  # round-trip commission + SEC fees
+MAX_GAP_PCT = 1.0
+OR_MINUTES = 2  # 2 one-minute bars
+MIN_OR_RANGE_PCT = 0.40  # filter narrow ranges
+SLIPPAGE = 0.01  # $0.01 per share slippage on entry
 
 
-def load_1min(ticker):
+def load_universe():
+    df = pd.read_csv(UNIVERSE)
+    return df["ticker"].tolist()
+
+
+def load_1m(ticker):
     path = CACHE_DIR / f"{ticker}_1m.parquet"
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_parquet(path)
-
-
-def prepare(df):
-    df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    if df["timestamp"].dt.tz is not None:
-        df["timestamp"] = df["timestamp"].dt.tz_convert("America/New_York").dt.tz_localize(None)
-    df["date"] = df["timestamp"].dt.date
-    df["time"] = df["timestamp"].dt.time
+    df = pd.read_parquet(path)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df = df.sort_values("timestamp").reset_index(drop=True)
     return df
 
 
-# =====================================================================
-# Exit methods
-# =====================================================================
+def compute_or(day_bars):
+    """Compute opening range from first OR_MINUTES 1-min bars."""
+    market_open = dtime(13, 30)  # 9:30 ET in UTC
+    or_end = dtime(13, 30 + OR_MINUTES)
 
-def exit_fixed(bars, entry, or_range, target_mult=1.5, stop_mult=1.0):
-    """Current method: fixed target and stop."""
-    target = entry + or_range * target_mult
-    stop = entry - or_range * stop_mult
-    for _, bar in bars.iterrows():
-        if bar["low"] <= stop:
-            return stop, "stop"
-        if bar["high"] >= target:
-            return target, "target"
-        if bar["time"] >= dtime(15, 55):
-            return bar["close"], "eod"
-    if len(bars) > 0:
-        return bars.iloc[-1]["close"], "eod"
-    return entry, "flat"
+    or_bars = day_bars[
+        (day_bars["timestamp"].dt.time >= market_open) &
+        (day_bars["timestamp"].dt.time < or_end)
+    ]
+    if len(or_bars) < OR_MINUTES:
+        return None
 
+    or_high = or_bars["high"].max()
+    or_low = or_bars["low"].min()
+    or_range = or_high - or_low
+    or_close = or_bars.iloc[-1]["close"]
+    or_avg_vol = or_bars["volume"].mean()
 
-def exit_trailing(bars, entry, or_range, trail_mult=0.5, stop_mult=1.0):
-    """Trailing stop only, no fixed target. Trail distance = trail_mult * OR range."""
-    stop = entry - or_range * stop_mult  # initial stop
-    trail_dist = or_range * trail_mult
-    highest = entry
+    if or_range <= 0:
+        return None
 
-    for _, bar in bars.iterrows():
-        if bar["low"] <= stop:
-            return stop, "stop"
-        if bar["high"] > highest:
-            highest = bar["high"]
-            trail_stop = highest - trail_dist
-            if trail_stop > stop:
-                stop = trail_stop
-        if bar["time"] >= dtime(15, 55):
-            return bar["close"], "eod"
-    if len(bars) > 0:
-        return bars.iloc[-1]["close"], "eod"
-    return entry, "flat"
+    return {
+        "or_high": or_high,
+        "or_low": or_low,
+        "or_range": or_range,
+        "or_close": or_close,
+        "or_avg_vol": or_avg_vol,
+    }
 
 
-def exit_hybrid(bars, entry, or_range, target_mult=1.5, trail_mult=0.5, stop_mult=1.0):
+def get_prev_close(ticker, date, all_data):
+    """Get previous day's close for gap filter."""
+    prev_days = all_data[all_data["timestamp"].dt.date < date]
+    if prev_days.empty:
+        return None
+    return prev_days.iloc[-1]["close"]
+
+
+def simulate_trade(post_or_bars, entry_price, or_data, method, params):
     """
-    Fixed target for first portion, then trail the rest.
-    Returns a blended P&L: 50% at target, 50% trailed.
-    We simulate by tracking both exits separately.
+    Simulate a single trade bar-by-bar using 1-min data.
+
+    Returns dict with: exit_price, exit_time, exit_reason, bars_held
     """
-    target = entry + or_range * target_mult
-    stop = entry - or_range * stop_mult
-    trail_dist = or_range * trail_mult
-    highest = entry
+    or_range = or_data["or_range"]
+    or_low = or_data["or_low"]
 
-    target_hit = False
-    target_price = None
-    trail_exit_price = None
+    # Common: initial stop at OR low
+    stop = or_low
 
-    for _, bar in bars.iterrows():
-        if bar["low"] <= stop:
-            if not target_hit:
-                # Both halves stopped out
-                return stop, "stop", stop, "stop"
-            else:
-                # First half already took profit, second half stopped
-                return target_price, "target", stop, "trail_stop"
+    if method == "fixed_bracket":
+        rr_mult = params.get("rr_mult", 1.5)
+        time_stop_min = params.get("time_stop_min", None)
+        risk = entry_price - or_low
+        target = entry_price + risk * rr_mult
 
-        if not target_hit and bar["high"] >= target:
-            target_hit = True
-            target_price = target
-            # Reset stop to breakeven for trailing portion
-            stop = entry
-            highest = bar["high"]
+        for i, (_, bar) in enumerate(post_or_bars.iterrows()):
+            # Check time stop first
+            if time_stop_min and i >= time_stop_min:
+                return {
+                    "exit_price": bar["open"],
+                    "exit_reason": f"time_{time_stop_min}m",
+                    "bars_held": i,
+                }
+            # Check stop
+            if bar["low"] <= stop:
+                return {
+                    "exit_price": stop,
+                    "exit_reason": "stop",
+                    "bars_held": i,
+                }
+            # Check target
+            if bar["high"] >= target:
+                return {
+                    "exit_price": target,
+                    "exit_reason": "target",
+                    "bars_held": i,
+                }
 
-        if target_hit:
+        # EOD exit
+        return {
+            "exit_price": post_or_bars.iloc[-1]["close"],
+            "exit_reason": "eod",
+            "bars_held": len(post_or_bars),
+        }
+
+    elif method == "trail_old":
+        # Current live logic: trail ratchets on any new high
+        trail_mult = params.get("trail_mult", 0.3)
+        trail_amt = or_range * trail_mult
+        # Apply floor
+        floor = entry_price * 0.15 / 100
+        trail_amt = max(trail_amt, floor)
+        highest = entry_price
+
+        for i, (_, bar) in enumerate(post_or_bars.iterrows()):
+            # Update high and ratchet stop
             if bar["high"] > highest:
                 highest = bar["high"]
-                trail_stop = highest - trail_dist
-                if trail_stop > stop:
-                    stop = trail_stop
+                new_stop = round(highest - trail_amt, 2)
+                if new_stop > stop:
+                    stop = new_stop
 
-        if bar["time"] >= dtime(15, 55):
-            if target_hit:
-                return target_price, "target", bar["close"], "eod"
-            else:
-                return bar["close"], "eod", bar["close"], "eod"
+            if bar["low"] <= stop:
+                return {
+                    "exit_price": stop,
+                    "exit_reason": "trail",
+                    "bars_held": i,
+                }
 
-    if len(bars) > 0:
-        last = bars.iloc[-1]["close"]
-        if target_hit:
-            return target_price, "target", last, "eod"
-        return last, "eod", last, "eod"
-    return entry, "flat", entry, "flat"
+        return {
+            "exit_price": post_or_bars.iloc[-1]["close"],
+            "exit_reason": "eod",
+            "bars_held": len(post_or_bars),
+        }
+
+    elif method == "trail_threshold":
+        # New logic: trail activates only after entry + trail_amt
+        trail_mult = params.get("trail_mult", 0.3)
+        trail_amt = or_range * trail_mult
+        floor = entry_price * 0.15 / 100
+        trail_amt = max(trail_amt, floor)
+        activation = entry_price + trail_amt
+        highest = entry_price
+        trail_active = False
+
+        for i, (_, bar) in enumerate(post_or_bars.iterrows()):
+            if bar["high"] > highest:
+                highest = bar["high"]
+
+            if highest >= activation:
+                trail_active = True
+                new_stop = round(highest - trail_amt, 2)
+                if new_stop > stop:
+                    stop = new_stop
+
+            if bar["low"] <= stop:
+                reason = "trail" if trail_active else "stop"
+                return {
+                    "exit_price": stop,
+                    "exit_reason": reason,
+                    "bars_held": i,
+                }
+
+        return {
+            "exit_price": post_or_bars.iloc[-1]["close"],
+            "exit_reason": "eod",
+            "bars_held": len(post_or_bars),
+        }
+
+    elif method == "time_exit":
+        # Pure time-based: exit after N minutes, stop at OR low for protection
+        exit_min = params.get("exit_min", 15)
+
+        for i, (_, bar) in enumerate(post_or_bars.iterrows()):
+            if bar["low"] <= stop:
+                return {
+                    "exit_price": stop,
+                    "exit_reason": "stop",
+                    "bars_held": i,
+                }
+            if i >= exit_min:
+                return {
+                    "exit_price": bar["open"],
+                    "exit_reason": f"time_{exit_min}m",
+                    "bars_held": i,
+                }
+
+        return {
+            "exit_price": post_or_bars.iloc[-1]["close"],
+            "exit_reason": "eod",
+            "bars_held": len(post_or_bars),
+        }
 
 
-# =====================================================================
-# Backtest engine
-# =====================================================================
-
-def backtest_exit_method(df, exit_fn, or_minutes=2, max_gap_pct=0.5,
-                          slippage_pct=0.02, commission_usd=1.0,
-                          position_size_usd=950.0):
-    """Run ORB backtest with a custom exit function. Long-only, volume-confirmed."""
-    all_days = sorted(df["date"].unique())
-    trades = []
-    cost_pct = (slippage_pct * 2) + (commission_usd / position_size_usd * 100)
-    or_end = dtime(9, 30 + or_minutes)
-
-    for day, day_df in df.groupby("date"):
-        mkt = day_df[(day_df["time"] >= dtime(9, 30)) & (day_df["time"] <= dtime(15, 55))]
-        if len(mkt) < or_minutes + 10:
-            continue
-
-        or_data = mkt[mkt["time"] < or_end]
-        if len(or_data) < or_minutes:
-            continue
-
-        or_high = or_data["high"].max()
-        or_low = or_data["low"].min()
-        or_range = or_high - or_low
+def rank_candidates(candidates):
+    """Rank by proximity (same as live bot)."""
+    for c in candidates:
+        or_data = c["or_data"]
+        or_range = or_data["or_range"]
+        or_high = or_data["or_high"]
+        or_low = or_data["or_low"]
+        or_close = or_data["or_close"]
         or_mid = (or_high + or_low) / 2
-        if or_range <= 0 or or_mid <= 0:
-            continue
 
-        or_avg_volume = or_data["volume"].mean()
+        proximity = (or_close - or_low) / or_range if or_range > 0 else 0
+        proximity = max(0, min(1, proximity))
 
-        # Gap filter
-        day_idx = list(all_days).index(day) if day in all_days else -1
-        if day_idx > 0 and max_gap_pct is not None:
-            prev_day = all_days[day_idx - 1]
-            prev_data = df[df["date"] == prev_day]
-            if len(prev_data) > 0:
-                prev_close = prev_data.iloc[-1]["close"]
-                gap = abs(mkt.iloc[0]["open"] / prev_close - 1) * 100
-                if gap > max_gap_pct:
-                    continue
+        or_range_pct = or_range / or_mid * 100 if or_mid > 0 else 0
+        width_score = min(or_range_pct / 1.5, 1.0)
 
-        remaining = mkt[mkt["time"] >= or_end]
-        trade_taken = False
+        vol_score = min(or_data["or_avg_vol"] / 50000, 1.0)
 
-        for _, bar in remaining.iterrows():
-            if trade_taken:
-                break
+        c["score"] = 0.60 * proximity + 0.20 * width_score + 0.20 * vol_score
+        c["proximity"] = proximity
 
-            # Volume confirmation
-            if bar["volume"] < or_avg_volume:
-                continue
-
-            # Long breakout only
-            if bar["high"] > or_high:
-                entry = or_high
-                future = remaining[remaining["timestamp"] >= bar["timestamp"]]
-                result = exit_fn(future, entry, or_range)
-
-                # Handle hybrid (returns 4 values) vs simple (returns 2)
-                if len(result) == 4:
-                    p1, r1, p2, r2 = result
-                    pnl1 = (p1 - entry) / entry * 100
-                    pnl2 = (p2 - entry) / entry * 100
-                    pnl_pct = (pnl1 + pnl2) / 2 - cost_pct  # 50/50 blend
-                    reason = f"{r1}/{r2}"
-                else:
-                    exit_price, reason = result
-                    pnl_pct = (exit_price - entry) / entry * 100 - cost_pct
-
-                trades.append({
-                    "date": day, "entry": entry, "pnl_pct": pnl_pct,
-                    "reason": reason,
-                })
-                trade_taken = True
-
-    return pd.DataFrame(trades)
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates
 
 
-def stats_line(trades, label):
-    if trades.empty:
-        print(f"  {label:<50} -- no trades --")
-        return {}
-    n = len(trades)
-    wins = trades[trades["pnl_pct"] > 0]
-    losses = trades[trades["pnl_pct"] <= 0]
-    wr = len(wins) / n * 100
-    gw = wins["pnl_pct"].sum() if len(wins) else 0
-    gl = abs(losses["pnl_pct"].sum()) if len(losses) else 0.001
-    pf = gw / gl
-    total = trades["pnl_pct"].sum()
-    avg = trades["pnl_pct"].mean()
-    cum = trades["pnl_pct"].cumsum()
-    dd = (cum - cum.cummax()).min()
-    avg_win = wins["pnl_pct"].mean() if len(wins) else 0
-    avg_loss = losses["pnl_pct"].mean() if len(losses) else 0
+def run_backtest():
+    tickers = load_universe()
+    print(f"Universe: {len(tickers)} tickers")
 
-    reasons = trades["reason"].value_counts().to_dict()
-    r_str = " ".join(f"{k}:{v}" for k, v in reasons.items())
+    # Load all data
+    print("Loading 1-min data...")
+    all_data = {}
+    for t in tickers:
+        df = load_1m(t)
+        if not df.empty:
+            all_data[t] = df
+    print(f"Loaded: {len(all_data)} tickers with data")
 
-    print(f"  {label:<50} {n:>4} tr  {wr:>5.1f}% WR  {pf:>5.2f} PF  "
-          f"{total:>+8.2f}%  {avg:>+6.3f}% avg  {dd:>+6.2f}% DD")
-    print(f"  {'':50} avg win: {avg_win:+.3f}%  avg loss: {avg_loss:+.3f}%  exits: {r_str}")
+    # Get all trading days
+    sample = next(iter(all_data.values()))
+    dates = sorted(sample["timestamp"].dt.date.unique())
+    print(f"Trading days: {len(dates)} ({dates[0]} to {dates[-1]})")
+    print()
 
-    return {"label": label, "trades": n, "wr": wr, "pf": pf,
-            "total": total, "avg": avg, "dd": dd,
-            "avg_win": avg_win, "avg_loss": avg_loss}
-
-
-# =====================================================================
-# Main
-# =====================================================================
-
-if __name__ == "__main__":
-    print("\n" + "=" * 80)
-    print("  EXIT METHOD COMPARISON (2-min OR, volume confirmed, long-only, with costs)")
-    print("=" * 80)
-
-    universe = pd.read_csv(UNIVERSE_PATH)
-    tickers = universe["ticker"].tolist()
-
-    # Define exit strategies to test
-    strategies = [
-        ("BASELINE: fixed 1.5x target + 1.0x stop",
-         lambda bars, entry, orr: exit_fixed(bars, entry, orr, 1.5, 1.0)),
-        ("Fixed 2.0x target + 1.0x stop",
-         lambda bars, entry, orr: exit_fixed(bars, entry, orr, 2.0, 1.0)),
-        ("Fixed 1.0x target + 1.0x stop (1:1 R:R)",
-         lambda bars, entry, orr: exit_fixed(bars, entry, orr, 1.0, 1.0)),
-        ("Trail 0.3x OR (tight) + 1.0x initial stop",
-         lambda bars, entry, orr: exit_trailing(bars, entry, orr, 0.3, 1.0)),
-        ("Trail 0.5x OR + 1.0x initial stop",
-         lambda bars, entry, orr: exit_trailing(bars, entry, orr, 0.5, 1.0)),
-        ("Trail 0.75x OR + 1.0x initial stop",
-         lambda bars, entry, orr: exit_trailing(bars, entry, orr, 0.75, 1.0)),
-        ("Trail 1.0x OR + 1.0x initial stop",
-         lambda bars, entry, orr: exit_trailing(bars, entry, orr, 1.0, 1.0)),
-        ("Trail 1.5x OR (wide) + 1.0x initial stop",
-         lambda bars, entry, orr: exit_trailing(bars, entry, orr, 1.5, 1.0)),
-        ("Hybrid: 50% at 1.5x target, trail rest 0.3x",
-         lambda bars, entry, orr: exit_hybrid(bars, entry, orr, 1.5, 0.3, 1.0)),
-        ("Hybrid: 50% at 1.5x target, trail rest 0.5x",
-         lambda bars, entry, orr: exit_hybrid(bars, entry, orr, 1.5, 0.5, 1.0)),
-        ("Hybrid: 50% at 1.0x target, trail rest 0.5x",
-         lambda bars, entry, orr: exit_hybrid(bars, entry, orr, 1.0, 0.5, 1.0)),
+    # Define methods to test
+    methods = [
+        ("Bracket 1.5R", "fixed_bracket", {"rr_mult": 1.5}),
+        ("Bracket 2R", "fixed_bracket", {"rr_mult": 2.0}),
+        ("Bracket 3R", "fixed_bracket", {"rr_mult": 3.0}),
+        ("Bracket 1.5R+30m", "fixed_bracket", {"rr_mult": 1.5, "time_stop_min": 30}),
+        ("Bracket 2R+30m", "fixed_bracket", {"rr_mult": 2.0, "time_stop_min": 30}),
+        ("Bracket 2R+60m", "fixed_bracket", {"rr_mult": 2.0, "time_stop_min": 60}),
+        ("Trail 0.3x (old)", "trail_old", {"trail_mult": 0.3}),
+        ("Trail 0.3x (threshold)", "trail_threshold", {"trail_mult": 0.3}),
+        ("Trail 0.5x (threshold)", "trail_threshold", {"trail_mult": 0.5}),
+        ("Time 15m", "time_exit", {"exit_min": 15}),
+        ("Time 30m", "time_exit", {"exit_min": 30}),
+        ("Time 60m", "time_exit", {"exit_min": 60}),
     ]
 
-    # Aggregate across all tickers
-    agg = {label: [] for label, _ in strategies}
+    # Run for each trade-per-day count
+    for max_trades in [1, 3]:
+        print(f"\n{'='*90}")
+        print(f"  MAX {max_trades} TRADE(S) PER DAY  |  $1,900 account  |  $5.50 RT cost  |  "
+              f"${SLIPPAGE} slippage")
+        print(f"{'='*90}")
 
-    print(f"\n  Backtesting {len(strategies)} exit strategies across {len(tickers)} tickers...\n")
-    for ticker in tqdm(tickers, desc="  Backtesting"):
-        df = load_1min(ticker)
-        if df.empty:
-            continue
-        try:
-            df = prepare(df)
-        except Exception:
-            continue
-        if df["date"].nunique() < 5:
-            continue
+        results = {name: [] for name, _, _ in methods}
 
-        for label, exit_fn in strategies:
-            trades = backtest_exit_method(df, exit_fn)
-            if not trades.empty:
-                trades["ticker"] = ticker
-                agg[label].append(trades)
+        for day_idx, date in enumerate(dates[1:], 1):  # skip first day (need prev close)
+            # Collect candidates for this day
+            candidates = []
+            for ticker, df in all_data.items():
+                day_bars = df[df["timestamp"].dt.date == date].copy()
+                if len(day_bars) < 10:
+                    continue
 
-    # Results
-    print(f"\n{'='*80}")
-    print(f"  RESULTS (85 stocks pooled, $950 positions, long-only)")
-    print(f"{'='*80}\n")
+                # Gap filter
+                prev_close = get_prev_close(ticker, date, df)
+                if prev_close is None:
+                    continue
+                today_open = day_bars.iloc[0]["open"]
+                gap_pct = abs(today_open / prev_close - 1) * 100
+                if gap_pct > MAX_GAP_PCT:
+                    continue
 
-    all_stats = []
-    for label, _ in strategies:
-        if agg[label]:
-            pooled = pd.concat(agg[label]).reset_index(drop=True)
-        else:
-            pooled = pd.DataFrame()
-        s = stats_line(pooled, label)
-        if s:
-            all_stats.append(s)
-        print()
+                # Compute OR
+                or_data = compute_or(day_bars)
+                if or_data is None:
+                    continue
 
-    # Summary table
-    print(f"{'='*80}")
-    print(f"  RANKED BY PROFIT FACTOR")
-    print(f"{'='*80}")
-    print(f"  {'Strategy':<50} {'Trades':>5} {'WR':>7} {'PF':>6} {'Total':>9} {'MaxDD':>7}")
-    print(f"  {'-'*85}")
-    for s in sorted(all_stats, key=lambda x: x["pf"], reverse=True):
-        print(f"  {s['label']:<50} {s['trades']:>5} {s['wr']:>6.1f}% {s['pf']:>5.2f} "
-              f"{s['total']:>+8.2f}% {s['dd']:>+6.2f}%")
+                # Min range filter
+                or_mid = (or_data["or_high"] + or_data["or_low"]) / 2
+                or_range_pct = or_data["or_range"] / or_mid * 100
+                if or_range_pct < MIN_OR_RANGE_PCT:
+                    continue
+
+                # Get post-OR bars (where trading happens)
+                or_end_time = dtime(13, 30 + OR_MINUTES)
+                post_or = day_bars[day_bars["timestamp"].dt.time >= or_end_time].copy()
+                if post_or.empty:
+                    continue
+
+                candidates.append({
+                    "ticker": ticker,
+                    "or_data": or_data,
+                    "post_or_bars": post_or,
+                    "day_bars": day_bars,
+                })
+
+            if not candidates:
+                continue
+
+            # Rank candidates
+            candidates = rank_candidates(candidates)
+
+            # For each method, simulate top N trades
+            for method_name, method_type, params in methods:
+                day_trades = []
+                used_tickers = set()
+
+                for cand in candidates:
+                    if len(day_trades) >= max_trades:
+                        break
+                    ticker = cand["ticker"]
+                    if ticker in used_tickers:
+                        continue
+
+                    or_data = cand["or_data"]
+                    post_or = cand["post_or_bars"]
+
+                    # Check for breakout: find the bar where price crosses OR high
+                    entry_bar_idx = None
+                    for j, (_, bar) in enumerate(post_or.iterrows()):
+                        if bar["high"] > or_data["or_high"]:
+                            entry_bar_idx = j
+                            break
+
+                    if entry_bar_idx is None:
+                        continue  # Never broke out
+
+                    entry_price = or_data["or_high"] + SLIPPAGE
+                    remaining = post_or.iloc[entry_bar_idx + 1:]  # bars after entry
+                    if remaining.empty:
+                        continue
+
+                    result = simulate_trade(remaining, entry_price, or_data,
+                                            method_type, params)
+
+                    qty = max(1, int(POSITION_SIZE / entry_price))
+                    pnl_per_share = result["exit_price"] - entry_price
+                    pnl_usd = pnl_per_share * qty - RT_COST
+                    pnl_pct = pnl_per_share / entry_price * 100
+
+                    day_trades.append({
+                        "date": date,
+                        "ticker": ticker,
+                        "entry": entry_price,
+                        "exit": result["exit_price"],
+                        "reason": result["exit_reason"],
+                        "bars_held": result["bars_held"],
+                        "pnl_pct": pnl_pct,
+                        "pnl_usd": pnl_usd,
+                        "qty": qty,
+                        "score": cand["score"],
+                    })
+                    used_tickers.add(ticker)
+
+                results[method_name].extend(day_trades)
+
+        # Print results
+        print(f"\n{'Method':<25} {'Trades':>6} {'WR':>6} {'Avg%':>7} "
+              f"{'PF':>6} {'Total$':>8} {'MaxDD$':>8} {'Avg$':>7} {'AvgBars':>7}")
+        print("-" * 90)
+
+        for method_name, _, _ in methods:
+            trades = results[method_name]
+            if not trades:
+                print(f"{method_name:<25} {'N/A':>6}")
+                continue
+
+            df = pd.DataFrame(trades)
+            n = len(df)
+            wins = (df["pnl_usd"] > 0).sum()
+            wr = wins / n * 100
+            avg_pct = df["pnl_pct"].mean()
+            total_usd = df["pnl_usd"].sum()
+            avg_usd = df["pnl_usd"].mean()
+            avg_bars = df["bars_held"].mean()
+
+            # Profit factor
+            gross_profit = df.loc[df["pnl_usd"] > 0, "pnl_usd"].sum()
+            gross_loss = abs(df.loc[df["pnl_usd"] < 0, "pnl_usd"].sum())
+            pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+
+            # Max drawdown
+            cumsum = df["pnl_usd"].cumsum()
+            running_max = cumsum.cummax()
+            dd = cumsum - running_max
+            max_dd = dd.min()
+
+            print(f"{method_name:<25} {n:>6} {wr:>5.1f}% {avg_pct:>+6.2f}% "
+                  f"{pf:>6.2f} {total_usd:>+7.0f} {max_dd:>+7.0f} "
+                  f"{avg_usd:>+6.1f} {avg_bars:>7.1f}")
+
+        # Exit reason breakdown for 1-trade mode
+        if max_trades == 1:
+            print(f"\n--- Exit reason breakdown ---")
+            for method_name, _, _ in methods:
+                trades = results[method_name]
+                if not trades:
+                    continue
+                df = pd.DataFrame(trades)
+                reasons = df.groupby("reason").agg(
+                    count=("pnl_usd", "count"),
+                    avg_pnl=("pnl_pct", "mean"),
+                    total=("pnl_usd", "sum"),
+                ).reset_index()
+                reason_str = " | ".join(
+                    f"{r['reason']}: {r['count']}x ({r['avg_pnl']:+.2f}%, ${r['total']:+.1f})"
+                    for _, r in reasons.iterrows()
+                )
+                print(f"  {method_name:<25} {reason_str}")
+
+
+if __name__ == "__main__":
+    run_backtest()
