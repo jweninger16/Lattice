@@ -1,28 +1,16 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-04-16 07:59:37",
-  "balance": 1884.24,
+  "updated": "2026-04-16 09:47:29",
+  "balance": 1855.2,
   "starting_capital": 2000.0,
   "wins": 8,
-  "losses": 10,
-  "total_trades": 19,
-  "total_pnl_usd": -115.75999999999999,
+  "losses": 11,
+  "total_trades": 20,
+  "total_pnl_usd": -144.79999999999995,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -6.176508721713021,
+  "max_drawdown_pct": -7.487009684143331,
   "recent_trades": [
-    {
-      "date": "2026-03-31",
-      "ticker": "TSLA",
-      "direction": "long",
-      "entry": 363.95,
-      "exit": 362.08,
-      "qty": 1,
-      "pnl_pct": -0.51,
-      "pnl_usd": -1.87,
-      "reason": "trail",
-      "balance_after": 1948.32
-    },
     {
       "date": "2026-04-02",
       "ticker": "PFE",
@@ -130,13 +118,21 @@
       "pnl_usd": 5.92,
       "reason": "trail",
       "balance_after": 1884.24
+    },
+    {
+      "date": "2026-04-16",
+      "ticker": "UAL",
+      "direction": "long",
+      "entry": 95.78,
+      "exit": 94.3,
+      "qty": 18,
+      "pnl_pct": -1.55,
+      "pnl_usd": -26.64,
+      "reason": "stop",
+      "balance_after": 1855.2
     }
   ],
   "equity_curve": [
-    {
-      "date": "2026-03-20",
-      "balance": 2000.0
-    },
     {
       "date": "2026-03-20",
       "balance": 1995.76
@@ -212,6 +208,10 @@
     {
       "date": "2026-04-15",
       "balance": 1884.24
+    },
+    {
+      "date": "2026-04-16",
+      "balance": 1855.2
     }
   ]
 }
