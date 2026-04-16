@@ -1,28 +1,16 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-04-15 08:19:21",
-  "balance": 1881.48,
+  "updated": "2026-04-16 07:59:37",
+  "balance": 1884.24,
   "starting_capital": 2000.0,
-  "wins": 7,
+  "wins": 8,
   "losses": 10,
-  "total_trades": 18,
-  "total_pnl_usd": -118.51999999999998,
+  "total_trades": 19,
+  "total_pnl_usd": -115.75999999999999,
   "peak_balance": 2005.34,
   "max_drawdown_pct": -6.176508721713021,
   "recent_trades": [
-    {
-      "date": "2026-03-30",
-      "ticker": "DOW",
-      "direction": "long",
-      "entry": 41.27,
-      "exit": 41.63,
-      "qty": 14,
-      "pnl_pct": 0.88,
-      "pnl_usd": 5.11,
-      "reason": "trail",
-      "balance_after": 1952.18
-    },
     {
       "date": "2026-03-31",
       "ticker": "TSLA",
@@ -130,6 +118,18 @@
       "pnl_usd": -3.99,
       "reason": "trail",
       "balance_after": 1881.48
+    },
+    {
+      "date": "2026-04-15",
+      "ticker": "MOS",
+      "direction": "long",
+      "entry": 24.03,
+      "exit": 24.11,
+      "qty": 74,
+      "pnl_pct": 0.33,
+      "pnl_usd": 5.92,
+      "reason": "trail",
+      "balance_after": 1884.24
     }
   ],
   "equity_curve": [
@@ -208,6 +208,10 @@
     {
       "date": "2026-04-14",
       "balance": 1881.48
+    },
+    {
+      "date": "2026-04-15",
+      "balance": 1884.24
     }
   ]
 }
