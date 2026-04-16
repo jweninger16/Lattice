@@ -16,6 +16,9 @@ Commands:
   python main.py daily            Run daily morning briefing
   python main.py monitor          Intraday stop/target monitor
   python main.py monitor --once   Single check and exit
+  python main.py swing             Automated swing trader (IBKR)
+  python main.py swing --live      Swing trader (live trading)
+  python main.py swing --monitor   Monitor existing positions only
   python main.py dashboard        Launch web dashboard
   python main.py scheduler        Start daily scheduler
   python main.py retrain          Force model retrain
@@ -294,8 +297,14 @@ def cmd_broker():
     run_broker(sub)
 
 
+def cmd_swing():
+    """Automated swing trader. Usage: python main.py swing [--live] [--monitor-only]"""
+    from live.swing_trader import run_swing
+    run_swing()
+
+
 def cmd_orb():
-    """ORB day trader. Usage: python main.py orb [--live] [--size 500]"""
+    """ORB day trader. Usage: python main.py orb [--live] [--size 500] [--shadow]"""
     from live.orb_trader import run_orb
     run_orb()
 
@@ -517,6 +526,7 @@ COMMANDS = {
     "dashboard":        cmd_dashboard,
     "ticker":           cmd_ticker,
     "broker":           cmd_broker,
+    "swing":            cmd_swing,
     "orb":              cmd_orb,
     "rsi2":             cmd_rsi2,
     "scheduler":        cmd_scheduler,

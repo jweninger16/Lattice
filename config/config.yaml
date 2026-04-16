@@ -19,7 +19,7 @@ backtest:
   hold_days: 7
   commission: 0.001
   slippage: 0.001
-  initial_capital: 2000
+  initial_capital: 612
   position_size: 0.1
   stop_loss_atr: 1.5
   profit_target_atr: 2.5

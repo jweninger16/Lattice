@@ -1198,6 +1198,9 @@ class MultiORBTrader:
         self.streaming_tickers = {}      # {ticker: ib_insync Ticker object (updates in place)}
         self.streaming_contracts = {}    # {ticker: Contract} for cleanup
 
+        # Shadow mode: log paper trades without placing real orders
+        self.shadow_mode = False
+
         # Account tracking (shared with Lattice dashboard)
         self.ACCOUNT_FILE = Path("live/gap_scanner_account.json")
         self.account = self._load_account()
@@ -2831,6 +2834,10 @@ def run_orb(args=None):
                         help="Disable OCA stop-limit entry (use poll-based scan)")
     parser.add_argument("--no-streaming", action="store_true",
                         help="Disable streaming data (use snapshot polling)")
+    parser.add_argument("--shadow", action="store_true",
+                        help="Shadow mode: compute signals and log paper trades, "
+                             "but do NOT place real orders. Connects to IBKR for "
+                             "market data only. Logs to orb_shadow_account.json.")
     if args is not None:
         parsed = parser.parse_args(args)
     else:
@@ -2842,7 +2849,17 @@ def run_orb(args=None):
     if parsed.no_streaming:
         ORBConfig.STREAMING_ENABLED = False
 
-    if parsed.single:
+    if parsed.shadow:
+        # Shadow mode: use paper port, override account file
+        logger.info("=" * 50)
+        logger.info("  ORB SHADOW MODE — paper trades only, no real orders")
+        logger.info("=" * 50)
+        trader = MultiORBTrader(paper=True, position_size=parsed.size,
+                                max_trades=parsed.max_trades)
+        trader.shadow_mode = True
+        trader.ACCOUNT_FILE = Path("live/orb_shadow_account.json")
+        trader.run()
+    elif parsed.single:
         # Legacy single-ticker mode
         trader = ORBTrader(paper=not parsed.live, position_size=parsed.size)
         trader.run()
