@@ -1,28 +1,16 @@
 {
   "username": "Jweninger16",
   "name": "Jake Weninger",
-  "updated": "2026-04-16 09:47:29",
-  "balance": 1855.2,
+  "updated": "2026-04-16 12:57:32",
+  "balance": 1853.53,
   "starting_capital": 2000.0,
-  "wins": 8,
+  "wins": 9,
   "losses": 11,
-  "total_trades": 20,
-  "total_pnl_usd": -144.79999999999995,
+  "total_trades": 21,
+  "total_pnl_usd": -146.47000000000003,
   "peak_balance": 2005.34,
-  "max_drawdown_pct": -7.487009684143331,
+  "max_drawdown_pct": -7.570287332821364,
   "recent_trades": [
-    {
-      "date": "2026-04-02",
-      "ticker": "PFE",
-      "direction": "long",
-      "entry": 28.5,
-      "exit": 28.53,
-      "qty": 33,
-      "pnl_pct": 0.11,
-      "pnl_usd": 0.99,
-      "reason": "trail",
-      "balance_after": 1949.4
-    },
     {
       "date": "2026-04-02",
       "ticker": "TGT",
@@ -130,13 +118,21 @@
       "pnl_usd": -26.64,
       "reason": "stop",
       "balance_after": 1855.2
+    },
+    {
+      "date": "2026-04-16",
+      "ticker": "FAST",
+      "direction": "long",
+      "entry": 45.08,
+      "exit": 45.19,
+      "qty": 3,
+      "pnl_pct": 0.24,
+      "pnl_usd": 0.33,
+      "reason": "time_stop",
+      "balance_after": 1853.53
     }
   ],
   "equity_curve": [
-    {
-      "date": "2026-03-20",
-      "balance": 1995.76
-    },
     {
       "date": "2026-03-23",
       "balance": 1995.86
@@ -212,6 +208,10 @@
     {
       "date": "2026-04-16",
       "balance": 1855.2
+    },
+    {
+      "date": "2026-04-16",
+      "balance": 1853.53
     }
   ]
 }
