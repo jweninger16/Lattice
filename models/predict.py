@@ -129,9 +129,9 @@ def generate_ml_signals(
             import yaml
             with open("config/config.yaml") as f:
                 cfg = yaml.safe_load(f)
-            min_score = cfg.get("backtest", {}).get("min_ml_score", 0.55)
+            min_score = cfg.get("backtest", {}).get("min_ml_score", 0.18)
         except Exception:
-            min_score = 0.55
+            min_score = 0.18
 
     # ── Signal gate ──────────────────────────────────────────────────
     # Percentile filter + absolute score floor
