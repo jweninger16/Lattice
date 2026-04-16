@@ -16,7 +16,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
 LOCAL_API = "http://localhost:8080"
-HOSTED_URL = "https://jweninger16.github.io/Lattice"
 
 
 def check_dependencies():
@@ -78,8 +77,8 @@ def auto_update():
 
 def open_browser_delayed():
     time.sleep(2)
-    print(f"  Opening {HOSTED_URL}")
-    webbrowser.open(HOSTED_URL)
+    print(f"  Opening {LOCAL_API}")
+    webbrowser.open(LOCAL_API)
 
 
 def main():
@@ -94,7 +93,7 @@ def main():
     # Check if already running
     if is_server_running():
         print("  Server already running!")
-        webbrowser.open(HOSTED_URL)
+        webbrowser.open(LOCAL_API)
         return
 
     # Auto-update from GitHub
@@ -116,7 +115,7 @@ def main():
     threading.Thread(target=open_browser_delayed, daemon=True).start()
 
     print(f"  API server: {LOCAL_API}")
-    print(f"  Frontend:   {HOSTED_URL}")
+    print(f"  Frontend:   {LOCAL_API}")
     print("  Close this window to stop Lattice.")
     print()
 
