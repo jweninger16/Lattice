@@ -114,9 +114,16 @@ def fetch_earnings_dates(tickers: list, use_cache: bool = True) -> dict:
     for ticker in tqdm(tickers, desc="Earnings"):
         try:
             stock = yf.Ticker(ticker)
-            cal = stock.earnings_dates
+            # get_earnings_dates() is more reliable than .earnings_dates property
+            # limit=12 fetches ~3 years of quarterly earnings dates
+            cal = stock.get_earnings_dates(limit=12)
             if cal is not None and len(cal) > 0:
-                dates = pd.to_datetime(cal.index).tz_localize(None)
+                raw_dates = pd.to_datetime(cal.index)
+                # Handle both tz-aware and tz-naive datetimes
+                if raw_dates.tz is not None:
+                    dates = raw_dates.tz_convert("UTC").tz_localize(None)
+                else:
+                    dates = raw_dates
                 earnings_map[ticker] = sorted(dates.tolist())
         except Exception:
             failed += 1
