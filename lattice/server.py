@@ -157,6 +157,98 @@ class BotManager:
 bot_manager = BotManager()
 
 
+# ── Swing Bot Manager ────────────────────────────────────────────────
+class SwingBotManager:
+    """
+    Manages the automated IBKR swing trader process.
+    Runs alongside the day-trading BotManager (different IBKR client IDs:
+    ORB=20, swing=10) so both can be active simultaneously.
+    """
+
+    def __init__(self):
+        self.process = None
+        self.running = False
+        self.log_buffer = deque(maxlen=500)
+        self.clients = []  # WebSocket clients
+        self._lock = threading.Lock()
+
+    def start(self, live=False):
+        if self.running:
+            return {"status": "already_running"}
+
+        cmd = [
+            sys.executable,
+            str(PROJECT_ROOT / "live" / "swing_trader.py"),
+        ]
+        if live:
+            cmd.append("--live")
+
+        # Force UTF-8 to avoid the cp1252 console encode error on Windows
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(PROJECT_ROOT),
+            env=env,
+        )
+        self.running = True
+        self.log_buffer.clear()
+        self.mode = "live" if live else "paper"
+
+        thread = threading.Thread(target=self._read_output, daemon=True)
+        thread.start()
+
+        return {"status": "started", "mode": self.mode}
+
+    def stop(self):
+        if not self.running or not self.process:
+            return {"status": "not_running"}
+
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+
+        self.running = False
+        self.process = None
+        return {"status": "stopped"}
+
+    def _read_output(self):
+        try:
+            for line in self.process.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+
+                entry = {
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "msg": line,
+                }
+                self.log_buffer.append(entry)
+
+                for client in self.clients[:]:
+                    try:
+                        asyncio.run(client.send_json(entry))
+                    except Exception:
+                        self.clients.remove(client)
+        except Exception:
+            pass
+        finally:
+            self.running = False
+
+    def get_recent_logs(self, n=50):
+        return list(self.log_buffer)[-n:]
+
+
+swing_manager = SwingBotManager()
+
+
 # ── User Auth ────────────────────────────────────────────────────────
 class UserStore:
     """Simple JSON-based user storage."""
@@ -509,6 +601,32 @@ async def bot_control(req: BotControlRequest):
         result = bot_manager.start(live=req.live, strategy=req.strategy)
     elif req.action == "stop":
         result = bot_manager.stop()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    return result
+
+
+# ── Swing Trader Control ─────────────────────────────────────────────
+class SwingControlRequest(BaseModel):
+    action: str  # "start" or "stop"
+    live: bool = False  # default paper for safety
+
+
+@app.get("/api/swing/status")
+async def swing_status():
+    return {
+        "running": swing_manager.running,
+        "mode": getattr(swing_manager, "mode", None),
+        "logs": swing_manager.get_recent_logs(20),
+    }
+
+
+@app.post("/api/swing/control")
+async def swing_control(req: SwingControlRequest):
+    if req.action == "start":
+        result = swing_manager.start(live=req.live)
+    elif req.action == "stop":
+        result = swing_manager.stop()
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     return result
