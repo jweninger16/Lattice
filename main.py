@@ -303,6 +303,12 @@ def cmd_swing():
     run_swing()
 
 
+def cmd_monitor_swing():
+    """Swing position monitor with Discord DM. Usage: python main.py monitor_swing [--loop] [--paper]"""
+    from live.position_monitor import main as monitor_main
+    monitor_main()
+
+
 def cmd_orb():
     """ORB day trader. Usage: python main.py orb [--live] [--size 500] [--shadow]"""
     from live.orb_trader import run_orb
@@ -527,6 +533,7 @@ COMMANDS = {
     "ticker":           cmd_ticker,
     "broker":           cmd_broker,
     "swing":            cmd_swing,
+    "monitor_swing":    cmd_monitor_swing,
     "orb":              cmd_orb,
     "rsi2":             cmd_rsi2,
     "scheduler":        cmd_scheduler,

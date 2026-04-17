@@ -164,25 +164,20 @@ class SwingTrader:
 
     # ── Signal Generation ────────────────────────────────────────────
 
-    def generate_signals(self) -> list:
+    def _build_live_df(self):
         """
-        Run the full ML signal pipeline and return today's buy candidates.
-        Applies: ML scoring → score floor → VIX regime gate → sector/correlation filter.
+        Live data path: yfinance → technical features → sector + earnings enrichment.
+        Returns the enriched dataframe. Raises on unrecoverable error.
         """
         from data.universe import build_universe
         from data.pipeline import add_technical_features, add_cross_sectional_features
-        from models.predict import generate_ml_signals
-        from utils.risk import compute_correlation_matrix, filter_candidates_by_risk
 
-        logger.info("Generating ML signals...")
-
-        # Download fresh data
         universe = build_universe(self.config)
+        logger.info(f"yfinance: downloading {len(universe)} tickers (120d)...")
         raw = yf.download(universe, period="120d", auto_adjust=True,
                           progress=False, threads=True)
         if raw.empty:
-            logger.error("No data downloaded")
-            return []
+            raise RuntimeError("yfinance returned empty frame")
 
         raw.columns.names = ["Field", "Ticker"]
         stacked = raw.stack(level="Ticker", future_stack=True).reset_index()
@@ -190,12 +185,11 @@ class SwingTrader:
         stacked["date"] = pd.to_datetime(stacked["date"])
         stacked = stacked.dropna(subset=["close", "volume"])
         stacked = stacked[stacked["close"] > 0]
+        logger.info(f"yfinance: {len(stacked):,} rows after cleanup")
 
-        # Build features
         df = add_technical_features(stacked)
         df = add_cross_sectional_features(df)
 
-        # Enrich with sector + earnings (best effort)
         start_str = df["date"].min().strftime("%Y-%m-%d")
         end_str = df["date"].max().strftime("%Y-%m-%d")
         try:
@@ -210,6 +204,70 @@ class SwingTrader:
             df = add_earnings_features(df, earnings_map)
         except Exception as e:
             logger.warning(f"Earnings enrichment failed: {e}")
+
+        return df
+
+    def _load_cached_df(self):
+        """
+        Fallback: load the enriched parquet built by `main.py pipeline && enrich`.
+        Returns dataframe or None if no cache available.
+        """
+        from pathlib import Path
+        processed = Path(self.config.get("data", {}).get("processed_dir", "data/processed"))
+        cache_path = processed / "price_features_enriched.parquet"
+        if not cache_path.exists():
+            logger.error(f"No cached signal data at {cache_path} — run `python main.py pipeline && python main.py enrich`")
+            return None
+        df = pd.read_parquet(cache_path)
+        latest = df["date"].max()
+        age_hours = (pd.Timestamp.now().normalize() - latest.normalize()).total_seconds() / 3600
+        logger.warning(
+            f"USING CACHED SIGNALS: {len(df):,} rows, latest={latest.date()}, "
+            f"age={age_hours/24:.1f} trading days"
+        )
+        return df
+
+    def _build_signal_df(self, live_timeout: int = 180):
+        """
+        Build the enriched signal dataframe.
+        Attempts live fetch (with overall timeout); falls back to cached parquet on
+        timeout or any unrecoverable error. Returns None if both paths fail.
+        """
+        import concurrent.futures
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(self._build_live_df)
+                try:
+                    df = fut.result(timeout=live_timeout)
+                    if df is not None and not df.empty:
+                        return df
+                    logger.warning("Live fetch returned empty — falling back to cache")
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"Live fetch exceeded {live_timeout}s — falling back to cache")
+                    fut.cancel()  # best-effort; yfinance threads may linger but we move on
+        except Exception as e:
+            logger.warning(f"Live fetch failed: {e} — falling back to cache")
+
+        return self._load_cached_df()
+
+    def generate_signals(self) -> list:
+        """
+        Run the full ML signal pipeline and return today's buy candidates.
+        Applies: ML scoring → score floor → VIX regime gate → sector/correlation filter.
+
+        Data path: tries live yfinance (with 180s timeout); falls back to the cached
+        enriched parquet if live fetch hangs or fails.
+        """
+        from models.predict import generate_ml_signals
+        from utils.risk import compute_correlation_matrix, filter_candidates_by_risk
+
+        logger.info("Generating ML signals...")
+
+        df = self._build_signal_df(live_timeout=180)
+        if df is None or df.empty:
+            logger.error("No signal data available (live fetch and cache both failed)")
+            return []
 
         # ML scoring (no regime gate — we apply VIX-aware gate below)
         df = generate_ml_signals(df, top_pct=0.10, apply_regime_gate=False)
